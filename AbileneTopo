@@ -1,37 +1,58 @@
 from mininet.topo import Topo
+from mininet.link import TCLink # Import TCLink for delay and bw
 
-class AbileneTopo(Topo):
+class AbileneTopoDelayed(Topo):
     def __init__(self):
         # Initialize topology
         Topo.__init__(self)
 
-        # Add nodes as hosts (since this is a router-level topology, we'll treat them as hosts)
-        ny = self.addHost('NewYork')
-        ch = self.addHost('Chicago')
-        dc = self.addHost('WashingtonDC')
-        sea = self.addHost('Seattle')
-        sun = self.addHost('Sunnyvale')
-        la = self.addHost('LosAngeles')
-        den = self.addHost('Denver')
-        kc = self.addHost('KansasCity')
-        hou = self.addHost('Houston')
-        atl = self.addHost('Atlanta')
-        ind = self.addHost('Indianapolis')
+        # Add nodes as hosts (routers)
+        # Assigning short names for easier reference in paths
+        nodes = {
+            'ny': 'NewYork', 'ch': 'Chicago', 'dc': 'WashingtonDC',
+            'sea': 'Seattle', 'sun': 'Sunnyvale', 'la': 'LosAngeles',
+            'den': 'Denver', 'kc': 'KansasCity', 'hou': 'Houston',
+            'atl': 'Atlanta', 'ind': 'Indianapolis'
+        }
+        
+        self.node_objs = {}
+        for short_name, long_name in nodes.items():
+            # Treat these as switches since they route, but Mininet hosts can run programs
+            # For OpenFlow, they need to be switches. If they are hosts, they connect TO switches.
+            # Let's make them switches, and attach a single host to each "router switch" if we need end-to-end apps.
+            # For simplicity in this router-level topology, we'll use addSwitch and then run commands ON these "switches"
+            # as if they were hosts. This is a common Mininet pattern for router topologies.
+            # OR, stick to addHost and ensure they are controlled by OpenFlow.
+            # Sticking to addHost as per original for now, will use ovs-ofctl on them.
+            self.node_objs[short_name] = self.addHost(long_name)
 
-        # Add links between nodes (using OC-192 as 10Gbps links)
-        self.addLink(ny, ch, bw=10)      # New York - Chicago
-        self.addLink(ny, dc, bw=10)      # New York - Washington DC
-        self.addLink(ch, ind, bw=10)     # Chicago - Indianapolis
-        self.addLink(dc, atl, bw=10)     # Washington DC - Atlanta
-        self.addLink(sea, sun, bw=10)     # Seattle - Sunnyvale
-        self.addLink(sea, den, bw=10)     # Seattle - Denver
-        self.addLink(sun, la, bw=10)      # Sunnyvale - Los Angeles
-        self.addLink(sun, den, bw=10)     # Sunnyvale - Denver
-        self.addLink(la, hou, bw=10)      # Los Angeles - Houston
-        self.addLink(den, kc, bw=10)      # Denver - Kansas City
-        self.addLink(kc, hou, bw=10)      # Kansas City - Houston
-        self.addLink(kc, ind, bw=10)      # Kansas City - Indianapolis
-        self.addLink(hou, atl, bw=10)     # Houston - Atlanta
-        self.addLink(atl, ind, bw=10)     # Atlanta - Indianapolis
+        ny, ch, dc, sea, sun, la, den, kc, hou, atl, ind = (
+            self.node_objs['ny'], self.node_objs['ch'], self.node_objs['dc'],
+            self.node_objs['sea'], self.node_objs['sun'], self.node_objs['la'],
+            self.node_objs['den'], self.node_objs['kc'], self.node_objs['hou'],
+            self.node_objs['atl'], self.node_objs['ind']
+        )
 
-topos = { 'abilene': ( lambda: AbileneTopo() ) }
+        # Add links: bw in Mbps, delay in ms
+        # Using random delays between 1ms and 2ms for variety
+        # Mininet TCLink delay format is like '1ms', '2ms'
+        # Note: bw=10 means 10 Mbps for TCLink by default. If you meant 10Gbps, use bw=10000
+        # The original had bw=10, implying 10Gbps for OC-192. For Mininet TCLink, explicit unit is good.
+        # Let's assume bw=10000 (10Gbps) for OC-192.
+        gbps = 10000 
+        self.addLink(ny, ch, bw=gbps, delay='1.2ms')
+        self.addLink(ny, dc, bw=gbps, delay='1.5ms')
+        self.addLink(ch, ind, bw=gbps, delay='1.0ms')
+        self.addLink(dc, atl, bw=gbps, delay='1.8ms')
+        self.addLink(sea, sun, bw=gbps, delay='1.1ms')
+        self.addLink(sea, den, bw=gbps, delay='2.0ms')
+        self.addLink(sun, la, bw=gbps, delay='1.3ms')
+        self.addLink(sun, den, bw=gbps, delay='1.6ms')
+        self.addLink(la, hou, bw=gbps, delay='1.9ms')
+        self.addLink(den, kc, bw=gbps, delay='1.4ms')
+        self.addLink(kc, hou, bw=gbps, delay='1.7ms')
+        self.addLink(kc, ind, bw=gbps, delay='1.2ms')
+        self.addLink(hou, atl, bw=gbps, delay='1.5ms')
+        self.addLink(atl, ind, bw=gbps, delay='1.0ms')
+
+topos = { 'abilenedelayed': ( lambda: AbileneTopoDelayed() ) }
