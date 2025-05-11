@@ -24,7 +24,7 @@ class AbileneTopo(Topo):
             # as if they were hosts. This is a common Mininet pattern for router topologies.
             # OR, stick to addHost and ensure they are controlled by OpenFlow.
             # Sticking to addHost as per original for now, will use ovs-ofctl on them.
-            self.node_objs[short_name] = self.addHost(long_name)
+            self.node_objs[short_name] = self.addHost(short_name)
 
         ny, ch, dc, sea, sun, la, den, kc, hou, atl, ind = (
             self.node_objs['ny'], self.node_objs['ch'], self.node_objs['dc'],
