@@ -1,0 +1,37 @@
+from mininet.topo import Topo
+
+class AbileneTopo(Topo):
+    def __init__(self):
+        # Initialize topology
+        Topo.__init__(self)
+
+        # Add nodes as hosts (since this is a router-level topology, we'll treat them as hosts)
+        ny = self.addHost('NewYork')
+        ch = self.addHost('Chicago')
+        dc = self.addHost('WashingtonDC')
+        sea = self.addHost('Seattle')
+        sun = self.addHost('Sunnyvale')
+        la = self.addHost('LosAngeles')
+        den = self.addHost('Denver')
+        kc = self.addHost('KansasCity')
+        hou = self.addHost('Houston')
+        atl = self.addHost('Atlanta')
+        ind = self.addHost('Indianapolis')
+
+        # Add links between nodes (using OC-192 as 10Gbps links)
+        self.addLink(ny, ch, bw=10)      # New York - Chicago
+        self.addLink(ny, dc, bw=10)      # New York - Washington DC
+        self.addLink(ch, ind, bw=10)     # Chicago - Indianapolis
+        self.addLink(dc, atl, bw=10)     # Washington DC - Atlanta
+        self.addLink(sea, sun, bw=10)     # Seattle - Sunnyvale
+        self.addLink(sea, den, bw=10)     # Seattle - Denver
+        self.addLink(sun, la, bw=10)      # Sunnyvale - Los Angeles
+        self.addLink(sun, den, bw=10)     # Sunnyvale - Denver
+        self.addLink(la, hou, bw=10)      # Los Angeles - Houston
+        self.addLink(den, kc, bw=10)      # Denver - Kansas City
+        self.addLink(kc, hou, bw=10)      # Kansas City - Houston
+        self.addLink(kc, ind, bw=10)      # Kansas City - Indianapolis
+        self.addLink(hou, atl, bw=10)     # Houston - Atlanta
+        self.addLink(atl, ind, bw=10)     # Atlanta - Indianapolis
+
+topos = { 'abilene': ( lambda: AbileneTopo() ) }
