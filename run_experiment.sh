@@ -119,7 +119,9 @@ uninstall_path2() {
 # --- Main Execution ---
 
 # Cleanup previous D-ITG logs if they exist
-rm -f $DITG_RECV_LOG $DITG_SEND_LOG $DITG_SEND_ACK_LOG
+echo "Attempting to remove old D-ITG log files..."
+sudo rm -f $DITG_RECV_LOG $DITG_SEND_LOG $DITG_SEND_ACK_LOG
+echo "Old D-ITG log files removal attempted."
 
 # Initial cleanup of any lingering flows from previous runs
 uninstall_path1
