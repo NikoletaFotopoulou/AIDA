@@ -41,17 +41,17 @@ class AbileneTopo(Topo):
         # 2. Add Hosts
         # Adding one host per switch, named h0, h1, ...
         # Assigning predictable IPs and MACs is helpful for manual flow rules.
-        h0 = self.addHost('h0', ip='10.0.0.1/24', mac='00:00:00:00:00:00')
-        h1 = self.addHost('h1', ip='10.0.1.1/24', mac='00:00:00:00:00:01')
-        h2 = self.addHost('h2', ip='10.0.2.1/24', mac='00:00:00:00:00:02')
-        h3 = self.addHost('h3', ip='10.0.3.1/24', mac='00:00:00:00:00:03')
-        h4 = self.addHost('h4', ip='10.0.4.1/24', mac='00:00:00:00:00:04')
-        h5 = self.addHost('h5', ip='10.0.5.1/24', mac='00:00:00:00:00:05')
-        h6 = self.addHost('h6', ip='10.0.6.1/24', mac='00:00:00:00:00:06')
-        h7 = self.addHost('h7', ip='10.0.7.1/24', mac='00:00:00:00:00:07')
-        h8 = self.addHost('h8', ip='10.0.8.1/24', mac='00:00:00:00:00:08')
-        h9 = self.addHost('h9', ip='10.0.9.1/24', mac='00:00:00:00:00:09')
-        h10 = self.addHost('h10', ip='10.0.10.1/24', mac='00:00:00:00:00:0A')
+        h0 = self.addHost('h0', ip='10.0.0.0/24', mac='00:00:00:00:00:00')
+        h1 = self.addHost('h1', ip='10.0.0.1/24', mac='00:00:00:00:00:01')
+        h2 = self.addHost('h2', ip='10.0.0.2/24', mac='00:00:00:00:00:02')
+        h3 = self.addHost('h3', ip='10.0.0.3/24', mac='00:00:00:00:00:03')
+        h4 = self.addHost('h4', ip='10.0.0.4/24', mac='00:00:00:00:00:04')
+        h5 = self.addHost('h5', ip='10.0.0.5/24', mac='00:00:00:00:00:05')
+        h6 = self.addHost('h6', ip='10.0.0.6/24', mac='00:00:00:00:00:06')
+        h7 = self.addHost('h7', ip='10.0.0.7/24', mac='00:00:00:00:00:07')
+        h8 = self.addHost('h8', ip='10.0.0.8/24', mac='00:00:00:00:00:08')
+        h9 = self.addHost('h9', ip='10.0.0.9/24', mac='00:00:00:00:00:09')
+        h10 = self.addHost('h10', ip='10.0.0.10/24', mac='00:00:00:00:00:0A')
 
         # Store hosts in a list for easier linking
         hosts = [h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10]
