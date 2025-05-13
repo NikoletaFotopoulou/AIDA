@@ -1,4 +1,6 @@
 #!/bin/bash
+set -e  # Exit immediately if a command exits with a non-zero status.
+set -x  # Print commands and their arguments as they are executed.
 
 # --- Configuration ---
 OF_VERSION="OpenFlow13"
@@ -21,7 +23,9 @@ add_flow() {
     PRIORITY=$3
     MATCH=$4
     ACTION=$5
+    echo "EXECUTING: sudo ovs-ofctl -O ${OF_VERSION} add-flow ${SWITCH} \"cookie=${COOKIE},priority=${PRIORITY},${MATCH},actions=${ACTION}\""
     sudo ovs-ofctl -O ${OF_VERSION} add-flow ${SWITCH} "cookie=${COOKIE},priority=${PRIORITY},${MATCH},actions=${ACTION}"
+    echo "COMMAND EXECUTED for $SWITCH. Check for errors above if any."
 }
 
 del_flows_by_cookie() {
