@@ -49,10 +49,6 @@ echo "      D-ITG sender duration in ms: $DITG_DURATION_MS_CALCULATED"
 echo "      Time on second path: $REMAINING_TIME_CALCULATED seconds"
 
 
-# The 'sudo mn ... << EOF' block runs a single Mininet session.
-# Commands inside are executed as if typed into the Mininet CLI.
-# 'sh <command>' tells Mininet to execute <command> in a system shell.
-# Host commands like '$H_DST ITGRecv' are run directly on the Mininet host.
 sudo mn --custom "$MININET_TOPO_FILE" --topo abilenetopo --controller=remote --switch ovs,protocols=OpenFlow10 --mac << EOF
 
 # --- Initial Setup inside Mininet ---
@@ -66,22 +62,20 @@ sh for i in \$(seq 0 10); do sudo ovs-ofctl add-flow s\$i "priority=1,arp,action
 
 # --- Path 1: h0(s0) -> s1 -> s10 -> s7 -> s6 -> s4 -> s5(h5) ---
 sh echo "[MN] Setting up OpenFlow rules for PATH 1: $H_SRC -> s0 -> s1 -> s10 -> s7 -> s6 -> s4 -> s5 -> $H_DST"
-# Forward: H_SRC (h0) to H_DST (h5) for Path 1
-sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=1,dl_dst=$H_DST_MAC,actions=output:2"  # h0(p1) -> s0(p2) -> s1
-sh sudo ovs-ofctl add-flow s1 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:3"  # s0(p2) -> s1(p3) -> s10
-sh sudo ovs-ofctl add-flow s10 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:3" # s1(p2) -> s10(p3) -> s7
-sh sudo ovs-ofctl add-flow s7 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:2"  # s10(p4) -> s7(p2) -> s6
-sh sudo ovs-ofctl add-flow s6 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:3"  # s7(p4) -> s6(p3) -> s4
-sh sudo ovs-ofctl add-flow s4 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:3"  # s6(p4) -> s4(p3) -> s5
-sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:1"  # s4(p2) -> s5(p1) -> h5
-# Return: H_DST (h5) to H_SRC (h0) for Path 1
-sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=1,dl_dst=$H_SRC_MAC,actions=output:2"  # h5(p1) -> s5(p2) -> s4
-sh sudo ovs-ofctl add-flow s4 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:4"  # s5(p3) -> s4(p4) -> s6
-sh sudo ovs-ofctl add-flow s6 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:4"  # s4(p3) -> s6(p4) -> s7
-sh sudo ovs-ofctl add-flow s7 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:4"  # s6(p2) -> s7(p4) -> s10
-sh sudo ovs-ofctl add-flow s10 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:2" # s7(p3) -> s10(p2) -> s1
-sh sudo ovs-ofctl add-flow s1 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:2"  # s10(p3) -> s1(p2) -> s0
-sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:1"  # s1(p2) -> s0(p1) -> h0
+sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=1,dl_dst=$H_DST_MAC,actions=output:2"
+sh sudo ovs-ofctl add-flow s1 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:3"
+sh sudo ovs-ofctl add-flow s10 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:3"
+sh sudo ovs-ofctl add-flow s7 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:2"
+sh sudo ovs-ofctl add-flow s6 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:3"
+sh sudo ovs-ofctl add-flow s4 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:3"
+sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:1"
+sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=1,dl_dst=$H_SRC_MAC,actions=output:2"
+sh sudo ovs-ofctl add-flow s4 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:4"
+sh sudo ovs-ofctl add-flow s6 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:4"
+sh sudo ovs-ofctl add-flow s7 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:4"
+sh sudo ovs-ofctl add-flow s10 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:2"
+sh sudo ovs-ofctl add-flow s1 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:2"
+sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:1"
 
 # --- Start D-ITG Traffic ---
 sh echo "[MN] Starting D-ITG Receiver on $H_DST ($H_DST_IP)..."
@@ -94,6 +88,7 @@ $H_SRC ITGSend -a $H_DST_IP -T UDP -c $DITG_PKT_SIZE -C $DITG_PPS -t $DITG_DURAT
 sh echo "[MN] D-ITG Sender started on $H_SRC."
 
 # --- Wait for Path Switch Time ---
+# Removed comment line that might have been problematic here
 sh echo "[MN] Running traffic on PATH 1 for $SWITCH_OVER_TIME seconds..."
 sh sleep $SWITCH_OVER_TIME
 
@@ -107,28 +102,26 @@ sh for i in \$(seq 0 10); do sudo ovs-ofctl add-flow s\$i "priority=1,arp,action
 
 # --- Path 2: h0(s0) -> s2 -> s9 -> s8 -> s5(h5) ---
 sh echo "[MN] Setting up OpenFlow rules for PATH 2: $H_SRC -> s0 -> s2 -> s9 -> s8 -> s5 -> $H_DST"
-# Forward: H_SRC (h0) to H_DST (h5) for Path 2
-sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=1,dl_dst=$H_DST_MAC,actions=output:3"  # h0(p1) -> s0(p3) -> s2
-sh sudo ovs-ofctl add-flow s2 "priority=100,in_port=3,dl_dst=$H_DST_MAC,actions=output:2"  # s0(p3) -> s2(p2) -> s9
-sh sudo ovs-ofctl add-flow s9 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:3"  # s2(p2) -> s9(p3) -> s8
-sh sudo ovs-ofctl add-flow s8 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:2"  # s9(p4) -> s8(p2) -> s5
-sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=3,dl_dst=$H_DST_MAC,actions=output:1"  # s8(p3) -> s5(p1) -> h5
-# Return: H_DST (h5) to H_SRC (h0) for Path 2
-sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=1,dl_dst=$H_SRC_MAC,actions=output:3"  # h5(p1) -> s5(p3) -> s8
-sh sudo ovs-ofctl add-flow s8 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:4"  # s5(p2) -> s8(p4) -> s9
-sh sudo ovs-ofctl add-flow s9 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:2"  # s8(p3) -> s9(p2) -> s2
-sh sudo ovs-ofctl add-flow s2 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:3"  # s9(p2) -> s2(p3) -> s0
-sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:1"  # s2(p3) -> s0(p1) -> h0
+sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=1,dl_dst=$H_DST_MAC,actions=output:3"
+sh sudo ovs-ofctl add-flow s2 "priority=100,in_port=3,dl_dst=$H_DST_MAC,actions=output:2"
+sh sudo ovs-ofctl add-flow s9 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:3"
+sh sudo ovs-ofctl add-flow s8 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:2"
+sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=3,dl_dst=$H_DST_MAC,actions=output:1"
+sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=1,dl_dst=$H_SRC_MAC,actions=output:3"
+sh sudo ovs-ofctl add-flow s8 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:4"
+sh sudo ovs-ofctl add-flow s9 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:2"
+sh sudo ovs-ofctl add-flow s2 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:3"
+sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:1"
 
 sh echo "[MN] Traffic running on PATH 2 for $REMAINING_TIME_CALCULATED seconds..."
 sh sleep $REMAINING_TIME_CALCULATED
 
 # --- End of D-ITG Traffic & Cleanup in Mininet ---
 sh echo "[MN] D-ITG sender should be finished. Waiting a few more seconds..."
-sh sleep 5 # Allow logs to flush, sender to fully complete
+sh sleep 5 
 
 sh echo "[MN] Stopping D-ITG Receiver on $H_DST..."
-$H_DST pkill -SIGINT ITGRecv # More robust: kills ITGRecv by name on h5
+$H_DST pkill -SIGINT ITGRecv
 
 sh echo "[MN] Experiment finished within Mininet. Exiting Mininet CLI."
 exit
@@ -136,7 +129,7 @@ EOF
 # --- End of Mininet Session ---
 
 echo "INFO: Mininet session has ended."
-sleep 2 # Give a moment for ITGRecv to fully stop and release log files.
+sleep 2 
 
 # --- D-ITG Log Analysis ---
 echo "INFO: Analyzing D-ITG logs..."
@@ -148,7 +141,6 @@ if [ -f "$DITG_RECEIVER_LOG_BASENAME" ]; then
     echo "--- D-ITG Analysis Results ---"
 
     TOTAL_SENT_PACKETS=$(($DITG_PPS * $TOTAL_DURATION))
-    # Correctly parse from the decoded log, ensuring we handle cases where the line might be missing
     RECEIVED_PACKETS_LINE=$(grep "NUMBER OF RECEIVED PACKETS" "$DITG_DECODED_LOG_BASENAME")
     RECEIVED_PACKETS=$(echo "$RECEIVED_PACKETS_LINE" | awk '{print $NF}')
 
@@ -156,7 +148,7 @@ if [ -f "$DITG_RECEIVER_LOG_BASENAME" ]; then
     AVG_DELAY=$(echo "$AVG_DELAY_LINE" | awk '{print $3}')
     UNIT_DELAY=$(echo "$AVG_DELAY_LINE" | awk '{print $4}')
     
-    AVG_JITTER_LINE=$(grep "AVERAGE.*JITTER" "$DITG_DECODED_LOG_BASENAME" | head -n 1) # Handles "AVERAGE JITTER" or "AVERAGE INTERARRIVAL JITTER"
+    AVG_JITTER_LINE=$(grep "AVERAGE.*JITTER" "$DITG_DECODED_LOG_BASENAME" | head -n 1)
     AVG_JITTER=$(echo "$AVG_JITTER_LINE" | awk '{print $3}')
     UNIT_JITTER=$(echo "$AVG_JITTER_LINE" | awk '{print $4}')
     
@@ -167,7 +159,7 @@ if [ -f "$DITG_RECEIVER_LOG_BASENAME" ]; then
     if [[ -n "$RECEIVED_PACKETS" && "$RECEIVED_PACKETS" =~ ^[0-9]+$ ]]; then
         echo "Total Packets Received: $RECEIVED_PACKETS"
         LOST_PACKETS_CALCULATED=$(($TOTAL_SENT_PACKETS - $RECEIVED_PACKETS))
-        if [ "$TOTAL_SENT_PACKETS" -gt 0 ]; then # Avoid division by zero
+        if [ "$TOTAL_SENT_PACKETS" -gt 0 ]; then 
             LOSS_PERCENTAGE=$(awk "BEGIN {printf \"%.2f%%\", ($LOST_PACKETS_CALCULATED*100)/$TOTAL_SENT_PACKETS}")
         else
             LOSS_PERCENTAGE="N/A (0 sent)"
