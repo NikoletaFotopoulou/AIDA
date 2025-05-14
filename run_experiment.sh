@@ -1,50 +1,77 @@
 #!/bin/bash
 
-# Kill any previous Mininet instances
-sudo mn -c
+set -e
 
-# Start Mininet in the background
-sudo mn --custom AbileneTopo.py --topo abilenetopo --controller=remote --mac --switch ovsk --link tc --test none &
-sleep 5  # Give Mininet time to start
+# 1. Start Mininet with remote controller
+echo "[*] Starting Mininet..."
+sudo mn --custom AbileneTopo.py --topo abilenetopo --controller=remote --mac --link=tc --switch ovsk &
 
-echo "Installing initial flows..."
+sleep 5
 
-# Initial route: h0 -> h5 via s0-s1-s10-s7-s8-s5
-sudo ovs-ofctl add-flow s0 in_port=1,actions=output:2
-sudo ovs-ofctl add-flow s1 in_port=1,actions=output:2
-sudo ovs-ofctl add-flow s10 in_port=1,actions=output:2
-sudo ovs-ofctl add-flow s7 in_port=1,actions=output:2
-sudo ovs-ofctl add-flow s8 in_port=1,actions=output:2
-sudo ovs-ofctl add-flow s5 in_port=1,actions=output:2
+echo "[*] Setting initial flow rules..."
 
-# Start packet capture on h5
-xterm -e "tcpdump -i h5-eth0 -w result.pcap" &
+# Delete old flows
+for i in {0..10}; do
+  sudo ovs-ofctl del-flows s$i
+done
 
-# Start ping from h0 to h5
-xterm -e "ping -i 0.2 -c 300 10.0.0.6 > ping_results.txt" &
+# ----------- INITIAL ROUTE (0-30s) ------------
+# Route: h0 → s0 → s1 → s10 → s9 → h9
 
-# Wait 30 seconds, then change the route
+# Assume:
+#   h0 is on port 1 of s0
+#   s0 to s1 is port 2
+#   s1 to s10 is port 2
+#   s10 to s9 is port 2
+#   s9 to h9 is port 2
+
+# s0
+sudo ovs-ofctl add-flow s0 "in_port=1,actions=output:2"
+sudo ovs-ofctl add-flow s0 "in_port=2,actions=output:1"
+
+# s1
+sudo ovs-ofctl add-flow s1 "in_port=1,actions=output:2"
+sudo ovs-ofctl add-flow s1 "in_port=2,actions=output:1"
+
+# s10
+sudo ovs-ofctl add-flow s10 "in_port=1,actions=output:2"
+sudo ovs-ofctl add-flow s10 "in_port=2,actions=output:1"
+
+# s9
+sudo ovs-ofctl add-flow s9 "in_port=1,actions=output:2"
+sudo ovs-ofctl add-flow s9 "in_port=2,actions=output:1"
+
+echo "[*] Starting ping..."
+xterm -e "sudo mnexec -a \$(pgrep -f 'bash.*h0') ping 10.0.0.10 -i 0.2 -D > ping_log.txt" &
+
+# Wait for 30 seconds
 sleep 30
-echo "Switching to new route..."
 
-# Delete previous rules (just a sample; adjust ports if needed)
-sudo ovs-ofctl del-flows s0
-sudo ovs-ofctl del-flows s1
-sudo ovs-ofctl del-flows s10
-sudo ovs-ofctl del-flows s7
-sudo ovs-ofctl del-flows s8
-sudo ovs-ofctl del-flows s5
+echo "[*] Switching flow to NEW path..."
 
-# New route: h0 -> h5 via s0-s2-s9-s8-s5
-sudo ovs-ofctl add-flow s0 in_port=1,actions=output:3
-sudo ovs-ofctl add-flow s2 in_port=1,actions=output:2
-sudo ovs-ofctl add-flow s9 in_port=1,actions=output:2
-sudo ovs-ofctl add-flow s8 in_port=1,actions=output:3
-sudo ovs-ofctl add-flow s5 in_port=1,actions=output:2
+# ----------- NEW ROUTE (30-60s) ------------
+# Route: h0 → s0 → s2 → s9 → h9
 
-# Wait for ping to finish
-sleep 35
+# Clear previous flows
+for i in {0..10}; do
+  sudo ovs-ofctl del-flows s$i
+done
 
-# Clean up
-sudo pkill tcpdump
+# s0: h0 to s2 (assume port 1 is h0, port 3 is s2)
+sudo ovs-ofctl add-flow s0 "in_port=1,actions=output:3"
+sudo ovs-ofctl add-flow s0 "in_port=3,actions=output:1"
+
+# s2: s0 to s9
+sudo ovs-ofctl add-flow s2 "in_port=1,actions=output:2"
+sudo ovs-ofctl add-flow s2 "in_port=2,actions=output:1"
+
+# s9: s2 to h9
+sudo ovs-ofctl add-flow s9 "in_port=1,actions=output:2"
+sudo ovs-ofctl add-flow s9 "in_port=2,actions=output:1"
+
+# Wait for the experiment to finish
+sleep 30
+
+echo "[*] Done. Stopping experiment."
+pkill xterm
 sudo mn -c
