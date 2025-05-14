@@ -1,200 +1,181 @@
 #!/bin/bash
-set -e  # Exit immediately if a command exits with a non-zero status.
-set -x  # Print commands and their arguments as they are executed.
 
 # --- Configuration ---
-OF_VERSION="OpenFlow13"
-H0_IP="10.0.0.0"
-H5_IP="10.0.0.5"
-# MACs are set by Mininet based on host number, e.g. 00:00:00:00:00:00 for h0, ...:05 for h5
-# We will primarily match on IP, relying on --arp for L2 resolution.
+MININET_TOPO_FILE="AbileneTopo.py" # YOUR Mininet topology Python file name
+H_SRC="h0"
+H_DST="h5"
+H_SRC_IP="10.0.0.1"  # Default Mininet IP for h0
+H_DST_IP="10.0.0.6"  # Default Mininet IP for h5
+H_SRC_MAC="00:00:00:00:00:01" # Default Mininet MAC for h0
+H_DST_MAC="00:00:00:00:00:06" # Default Mininet MAC for h5
 
-COOKIE_PATH1="0x1111" # Unique identifier for path 1 flows
-COOKIE_PATH2="0x2222" # Unique identifier for path 2 flows
+TOTAL_DURATION=60     # Total seconds for D-ITG traffic
+SWITCH_OVER_TIME=30   # Seconds after which to switch the path
 
-DITG_RECV_LOG="/tmp/h5_ditg_recv.log"
-DITG_SEND_LOG="/tmp/h0_ditg_send.log"
-DITG_SEND_ACK_LOG="/tmp/h0_ditg_ack.log" # Log for sender about received packets by receiver
+# D-ITG Parameters (UDP traffic)
+DITG_PPS=100          # Packets per second
+DITG_PKT_SIZE=512     # Bytes per packet
+# Log files will be created in the directory where you run the script
+DITG_SENDER_LOG_BASENAME="itg_sender.log"
+DITG_RECEIVER_LOG_BASENAME="itg_receiver.log"
+DITG_DECODED_LOG_BASENAME="itg_decoded_results.txt"
 
-# --- Helper Functions ---
-add_flow() {
-    SWITCH=$1
-    COOKIE=$2
-    PRIORITY=$3
-    MATCH=$4
-    ACTION=$5
-    echo "EXECUTING: sudo ovs-ofctl -O ${OF_VERSION} add-flow ${SWITCH} \"cookie=${COOKIE},priority=${PRIORITY},${MATCH},actions=${ACTION}\""
-    sudo ovs-ofctl -O ${OF_VERSION} add-flow ${SWITCH} "cookie=${COOKIE},priority=${PRIORITY},${MATCH},actions=${ACTION}"
-    echo "COMMAND EXECUTED for $SWITCH. Check for errors above if any."
-}
+# --- Sanity Checks ---
+if ! command -v ITGRecv &> /dev/null || ! command -v ITGSend &> /dev/null || ! command -v ITGDec &> /dev/null; then
+    echo "ERROR: D-ITG commands (ITGRecv, ITGSend, ITGDec) not found."
+    echo "Please install D-ITG and ensure it's in your PATH."
+    exit 1
+fi
 
-del_flows_by_cookie() {
-    SWITCH=$1
-    COOKIE=$2
-    sudo ovs-ofctl -O ${OF_VERSION} del-flows ${SWITCH} "cookie=${COOKIE}/-1" # Mask is -1 to match exact cookie
-}
+if [ ! -f "$MININET_TOPO_FILE" ]; then
+    echo "ERROR: Mininet topology file '$MININET_TOPO_FILE' not found."
+    echo "Please place it in the same directory as this script or update the path."
+    exit 1
+fi
 
-# --- Path 1 Flow Definitions (h0 -> s0-s1-s10-s7-s8-s5 -> h5) ---
-# s0-s1-s10-s7-s8-s5
-install_path1() {
-    echo "Installing Path 1 flows (Cookie: $COOKIE_PATH1)"
-    # Forward Path: h0 (10.0.0.0) to h5 (10.0.0.5)
-    # s0: h0 (p1) -> s1 (p2)
-    add_flow s0 $COOKIE_PATH1 100 "in_port=1,dl_type=0x0800,nw_dst=${H5_IP}" "output:2"
-    # s1: s0 (p2) -> s10 (p3)
-    add_flow s1 $COOKIE_PATH1 100 "in_port=2,dl_type=0x0800,nw_dst=${H5_IP}" "output:3"
-    # s10: s1 (p2) -> s7 (p3)
-    add_flow s10 $COOKIE_PATH1 100 "in_port=2,dl_type=0x0800,nw_dst=${H5_IP}" "output:3"
-    # s7: s10 (p4) -> s8 (p3)
-    add_flow s7 $COOKIE_PATH1 100 "in_port=4,dl_type=0x0800,nw_dst=${H5_IP}" "output:3"
-    # s8: s7 (p3) -> s5 (p2, link is s5-eth3<->s8-eth2, so s8-p2 to s5-p3)
-    add_flow s8 $COOKIE_PATH1 100 "in_port=3,dl_type=0x0800,nw_dst=${H5_IP}" "output:2"
-    # s5: s8 (p3) -> h5 (p1)
-    add_flow s5 $COOKIE_PATH1 100 "in_port=3,dl_type=0x0800,nw_dst=${H5_IP}" "output:1"
+# --- Cleanup old log files ---
+rm -f $DITG_SENDER_LOG_BASENAME $DITG_RECEIVER_LOG_BASENAME $DITG_DECODED_LOG_BASENAME
 
-    # Reverse Path: h5 (10.0.0.5) to h0 (10.0.0.0)
-    # s5: h5 (p1) -> s8 (p3)
-    add_flow s5 $COOKIE_PATH1 100 "in_port=1,dl_type=0x0800,nw_dst=${H0_IP}" "output:3"
-    # s8: s5 (p2) -> s7 (p3)
-    add_flow s8 $COOKIE_PATH1 100 "in_port=2,dl_type=0x0800,nw_dst=${H0_IP}" "output:3"
-    # s7: s8 (p3) -> s10 (p4)
-    add_flow s7 $COOKIE_PATH1 100 "in_port=3,dl_type=0x0800,nw_dst=${H0_IP}" "output:4"
-    # s10: s7 (p3) -> s1 (p2)
-    add_flow s10 $COOKIE_PATH1 100 "in_port=3,dl_type=0x0800,nw_dst=${H0_IP}" "output:2"
-    # s1: s10 (p3) -> s0 (p2)
-    add_flow s1 $COOKIE_PATH1 100 "in_port=3,dl_type=0x0800,nw_dst=${H0_IP}" "output:2"
-    # s0: s1 (p2) -> h0 (p1)
-    add_flow s0 $COOKIE_PATH1 100 "in_port=2,dl_type=0x0800,nw_dst=${H0_IP}" "output:1"
-}
+# --- Main Experiment Logic ---
 
-uninstall_path1() {
-    echo "Uninstalling Path 1 flows (Cookie: $COOKIE_PATH1)"
-    del_flows_by_cookie s0 $COOKIE_PATH1
-    del_flows_by_cookie s1 $COOKIE_PATH1
-    del_flows_by_cookie s10 $COOKIE_PATH1
-    del_flows_by_cookie s7 $COOKIE_PATH1
-    del_flows_by_cookie s8 $COOKIE_PATH1
-    del_flows_by_cookie s5 $COOKIE_PATH1
-}
+echo "INFO: Starting Mininet and running the experiment..."
+echo "      Total D-ITG duration: $TOTAL_DURATION seconds."
+echo "      Path switch will occur at: $SWITCH_OVER_TIME seconds."
 
-# --- Path 2 Flow Definitions (h0 -> s0-s2-s9-s8-s5 -> h5) ---
-# s0-s2-s9-s8-s5
-install_path2() {
-    echo "Installing Path 2 flows (Cookie: $COOKIE_PATH2)"
-    # Forward Path: h0 (10.0.0.0) to h5 (10.0.0.5)
-    # s0: h0 (p1) -> s2 (p3)
-    add_flow s0 $COOKIE_PATH2 100 "in_port=1,dl_type=0x0800,nw_dst=${H5_IP}" "output:3"
-    # s2: s0 (p2) -> s9 (p3)
-    add_flow s2 $COOKIE_PATH2 100 "in_port=2,dl_type=0x0800,nw_dst=${H5_IP}" "output:3"
-    # s9: s2 (p2) -> s8 (p3, link is s8-eth4<->s9-eth3, so s9-p3 to s8-p4)
-    add_flow s9 $COOKIE_PATH2 100 "in_port=2,dl_type=0x0800,nw_dst=${H5_IP}" "output:3"
-    # s8: s9 (p4) -> s5 (p2, link is s5-eth3<->s8-eth2, so s8-p2 to s5-p3)
-    add_flow s8 $COOKIE_PATH2 100 "in_port=4,dl_type=0x0800,nw_dst=${H5_IP}" "output:2"
-    # s5: s8 (p3) -> h5 (p1)
-    add_flow s5 $COOKIE_PATH2 100 "in_port=3,dl_type=0x0800,nw_dst=${H5_IP}" "output:1"
+# The 'sudo mn ... << EOF' block runs a single Mininet session.
+# Commands inside are executed as if typed into the Mininet CLI.
+# 'sh <command>' tells Mininet to execute <command> in a system shell.
+# Host commands like '$H_DST ITGRecv' are run directly on the Mininet host.
+sudo mn --custom "$MININET_TOPO_FILE" --topo abilenetopo --controller=remote --switch ovs,protocols=OpenFlow10 --mac << EOF
 
-    # Reverse Path: h5 (10.0.0.5) to h0 (10.0.0.0)
-    # s5: h5 (p1) -> s8 (p3)
-    add_flow s5 $COOKIE_PATH2 100 "in_port=1,dl_type=0x0800,nw_dst=${H0_IP}" "output:3"
-    # s8: s5 (p2) -> s9 (p4)
-    add_flow s8 $COOKIE_PATH2 100 "in_port=2,dl_type=0x0800,nw_dst=${H0_IP}" "output:4"
-    # s9: s8 (p3) -> s2 (p2)
-    add_flow s9 $COOKIE_PATH2 100 "in_port=3,dl_type=0x0800,nw_dst=${H0_IP}" "output:2"
-    # s2: s9 (p3) -> s0 (p2)
-    add_flow s2 $COOKIE_PATH2 100 "in_port=3,dl_type=0x0800,nw_dst=${H0_IP}" "output:2"
-    # s0: s2 (p3) -> h0 (p1)
-    add_flow s0 $COOKIE_PATH2 100 "in_port=3,dl_type=0x0800,nw_dst=${H0_IP}" "output:1"
-}
+# --- Initial Setup inside Mininet ---
+sh echo "[MN] Mininet session started. Performing initial setup."
 
-uninstall_path2() {
-    echo "Uninstalling Path 2 flows (Cookie: $COOKIE_PATH2)"
-    del_flows_by_cookie s0 $COOKIE_PATH2
-    del_flows_by_cookie s2 $COOKIE_PATH2
-    del_flows_by_cookie s9 $COOKIE_PATH2
-    del_flows_by_cookie s8 $COOKIE_PATH2
-    del_flows_by_cookie s5 $COOKIE_PATH2
-}
+sh echo "[MN] Deleting all existing flows from all switches..."
+sh for i in \$(seq 0 10); do sudo ovs-ofctl del-flows s\$i; done
 
+sh echo "[MN] Adding ARP flooding rules to all switches..."
+sh for i in \$(seq 0 10); do sudo ovs-ofctl add-flow s\$i "priority=1,arp,actions=FLOOD"; done
 
-# --- Main Execution ---
+# --- Path 1: h0(s0) -> s1 -> s10 -> s7 -> s6 -> s4 -> s5(h5) ---
+sh echo "[MN] Setting up OpenFlow rules for PATH 1: $H_SRC -> s0 -> s1 -> s10 -> s7 -> s6 -> s4 -> s5 -> $H_DST"
+# Forward: H_SRC (h0) to H_DST (h5) for Path 1
+sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=1,dl_dst=$H_DST_MAC,actions=output:2"  # h0(p1) -> s0(p2) -> s1
+sh sudo ovs-ofctl add-flow s1 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:3"  # s0(p2) -> s1(p3) -> s10
+sh sudo ovs-ofctl add-flow s10 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:3" # s1(p2) -> s10(p3) -> s7
+sh sudo ovs-ofctl add-flow s7 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:2"  # s10(p4) -> s7(p2) -> s6
+sh sudo ovs-ofctl add-flow s6 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:3"  # s7(p4) -> s6(p3) -> s4
+sh sudo ovs-ofctl add-flow s4 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:3"  # s6(p4) -> s4(p3) -> s5
+sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:1"  # s4(p2) -> s5(p1) -> h5
+# Return: H_DST (h5) to H_SRC (h0) for Path 1
+sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=1,dl_dst=$H_SRC_MAC,actions=output:2"  # h5(p1) -> s5(p2) -> s4
+sh sudo ovs-ofctl add-flow s4 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:4"  # s5(p3) -> s4(p4) -> s6
+sh sudo ovs-ofctl add-flow s6 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:4"  # s4(p3) -> s6(p4) -> s7
+sh sudo ovs-ofctl add-flow s7 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:4"  # s6(p2) -> s7(p4) -> s10
+sh sudo ovs-ofctl add-flow s10 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:2" # s7(p3) -> s10(p2) -> s1
+sh sudo ovs-ofctl add-flow s1 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:2"  # s10(p3) -> s1(p2) -> s0
+sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:1"  # s1(p2) -> s0(p1) -> h0
 
-# Cleanup previous D-ITG logs if they exist
-echo "Attempting to remove old D-ITG log files..."
-sudo rm -f $DITG_RECV_LOG $DITG_SEND_LOG $DITG_SEND_ACK_LOG
-echo "Old D-ITG log files removal attempted."
+# --- Start D-ITG Traffic ---
+sh echo "[MN] Starting D-ITG Receiver on $H_DST ($H_DST_IP)..."
+$H_DST ITGRecv -l ../$DITG_RECEIVER_LOG_BASENAME &
+ITGRECV_PID=\$! # Capture PID if needed, though pkill is often more reliable
+sh echo "[MN] D-ITG Receiver started on $H_DST. PID: \$ITGRECV_PID"
+sh sleep 2 # Give receiver a moment to bind
 
-# Initial cleanup of any lingering flows from previous runs
-uninstall_path1
-uninstall_path2
-echo "Cleaned up old flows."
+DITG_DURATION_MS=\$(($TOTAL_DURATION * 1000))
+sh echo "[MN] Starting D-ITG Sender on $H_SRC to $H_DST_IP for $TOTAL_DURATION seconds ($DITG_DURATION_MS ms)..."
+$H_SRC ITGSend -a $H_DST_IP -T UDP -c $DITG_PKT_SIZE -C $DITG_PPS -t \$DITG_DURATION_MS -l ../$DITG_SENDER_LOG_BASENAME -x ../$DITG_RECEIVER_LOG_BASENAME &
+ITGSEND_PID=\$!
+sh echo "[MN] D-ITG Sender started on $H_SRC. PID: \$ITGSEND_PID"
 
-# Install Path 1
-install_path1
-echo "Path 1 flows installed."
+# --- Wait for Path Switch Time ---
+sh echo "[MN] Running traffic on PATH 1 for $SWITCH_OVER_TIME seconds..."
+sh sleep $SWITCH_OVER_TIME
 
-# Verify connectivity (optional, but good for debugging)
-echo "Pinging h5 from h0 to check Path 1..."
-# Use Mininet's CLI syntax for executing commands on hosts if this script is run OUTSIDE Mininet CLI
-# If running inside Mininet CLI via 'sh run_experiment.sh', then this is fine.
-# Otherwise, you'd need to `sudo mnexec -a <pid_of_h0> ping -c 1 ${H5_IP}`
-# For simplicity, we'll assume this script's commands are typed into Mininet prompt or
-# Mininet hosts are accessed via `mx hX command` or `hX command` from Mininet CLI
-# Example using Mininet CLI command structure (you'd put this in Mininet prompt):
-# h0 ping -c 1 10.0.0.5
+# --- Path Switch ---
+sh echo "[MN] >>> Path switch occurring NOW! <<<"
+sh echo "[MN] Deleting all existing flows from all switches..."
+sh for i in \$(seq 0 10); do sudo ovs-ofctl del-flows s\$i; done
 
-echo "Starting ITGRecv on h5 (listening for 70 seconds)..."
-# In Mininet CLI:
-# h5 ITGRecv -l $DITG_RECV_LOG &
-# RECV_PID=$! # This won't work directly if typed in Mininet CLI
-# We'll send a command to mininet to run this.
-# A bit tricky to manage PIDs from an external script.
-# Simpler to start ITGRecv with a long timeout and kill it later, or just let it run.
-# For this script, we'll assume you type ITG commands in Mininet CLI.
-echo "In Mininet CLI, type: h5 ITGRecv -l $DITG_RECV_LOG &"
-read -p "Press [Enter] after starting ITGRecv on h5..."
+sh echo "[MN] Re-adding ARP flooding rules to all switches..."
+sh for i in \$(seq 0 10); do sudo ovs-ofctl add-flow s\$i "priority=1,arp,actions=FLOOD"; done
 
-echo "Starting ITGSend on h0 for 60 seconds (UDP, 512B packets, 100 packets/sec)..."
-# In Mininet CLI:
-# h0 ITGSend -a $H5_IP -T UDP -c 512 -C 100 -t 60000 -l $DITG_SEND_LOG -x $DITG_SEND_ACK_LOG &
-echo "In Mininet CLI, type: h0 ITGSend -a $H5_IP -T UDP -c 512 -C 100 -t 60000 -l $DITG_SEND_LOG -x $DITG_SEND_ACK_LOG &"
-# Let's capture the PID if possible, though from external script it's hard.
-# If you run `ITGSend` in Mininet CLI, it will run in background.
+# --- Path 2: h0(s0) -> s2 -> s9 -> s8 -> s5(h5) ---
+sh echo "[MN] Setting up OpenFlow rules for PATH 2: $H_SRC -> s0 -> s2 -> s9 -> s8 -> s5 -> $H_DST"
+# Forward: H_SRC (h0) to H_DST (h5) for Path 2
+sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=1,dl_dst=$H_DST_MAC,actions=output:3"  # h0(p1) -> s0(p3) -> s2
+sh sudo ovs-ofctl add-flow s2 "priority=100,in_port=3,dl_dst=$H_DST_MAC,actions=output:2"  # s0(p3) -> s2(p2) -> s9
+sh sudo ovs-ofctl add-flow s9 "priority=100,in_port=2,dl_dst=$H_DST_MAC,actions=output:3"  # s2(p2) -> s9(p3) -> s8
+sh sudo ovs-ofctl add-flow s8 "priority=100,in_port=4,dl_dst=$H_DST_MAC,actions=output:2"  # s9(p4) -> s8(p2) -> s5
+sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=3,dl_dst=$H_DST_MAC,actions=output:1"  # s8(p3) -> s5(p1) -> h5
+# Return: H_DST (h5) to H_SRC (h0) for Path 2
+sh sudo ovs-ofctl add-flow s5 "priority=100,in_port=1,dl_dst=$H_SRC_MAC,actions=output:3"  # h5(p1) -> s5(p3) -> s8
+sh sudo ovs-ofctl add-flow s8 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:4"  # s5(p2) -> s8(p4) -> s9
+sh sudo ovs-ofctl add-flow s9 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:2"  # s8(p3) -> s9(p2) -> s2
+sh sudo ovs-ofctl add-flow s2 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:3"  # s9(p2) -> s2(p3) -> s0
+sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:1"  # s2(p3) -> s0(p1) -> h0
 
-echo "Waiting for 30 seconds..."
-sleep 30
+REMAINING_TIME=\$(($TOTAL_DURATION - $SWITCH_OVER_TIME))
+sh echo "[MN] Traffic running on PATH 2 for \$REMAINING_TIME seconds..."
+sh sleep \$REMAINING_TIME
 
-echo "Switching paths: Uninstalling Path 1, Installing Path 2"
-uninstall_path1
-install_path2
-echo "Path 2 flows installed."
+# --- End of D-ITG Traffic & Cleanup in Mininet ---
+sh echo "[MN] D-ITG sender should be finished. Waiting a few more seconds..."
+sh sleep 5 # Allow logs to flush, sender to fully complete
 
-echo "Traffic now on Path 2. Waiting for remaining 30 seconds of ITGSend..."
-sleep 30 # Wait for ITGSend to complete its 60-second run
+sh echo "[MN] Stopping D-ITG Receiver on $H_DST..."
+# $H_DST kill -SIGINT \$ITGRECV_PID # Using PID can be unreliable here
+$H_DST pkill -SIGINT ITGRecv # More robust: kills ITGRecv by name on h5
 
-echo "ITGSend should be complete. Stopping ITGRecv on h5 (if needed)..."
-# In Mininet CLI, find ITGRecv PID: h5 ps aux | grep ITGRecv
-# Then: h5 kill <PID>
-# Or simply: h5 killall ITGRecv
-echo "In Mininet CLI, type: h5 killall ITGRecv"
-read -p "Press [Enter] after stopping ITGRecv on h5..."
+sh echo "[MN] Experiment finished within Mininet. Exiting Mininet CLI."
+exit
+EOF
+# --- End of Mininet Session ---
 
-echo "Experiment finished."
-echo "--------------------"
-echo "ANALYSIS:"
-echo "Decode D-ITG logs to see results:"
-echo "On the machine running Mininet (or copy logs from /tmp/):"
-echo "  ITGDec $DITG_RECV_LOG"
-echo "This will show packet count, delay, jitter, loss for packets received at h5."
-echo "  ITGDec $DITG_SEND_LOG"
-echo "This will show packet count for packets sent from h0."
-echo "  ITGDec $DITG_SEND_ACK_LOG"
-echo "This will show sender's view of successfully received packets (if protocol supports it, e.g. with -rp for receiver port)."
-echo ""
-echo "Check flow tables on switches (example for s0):"
-echo "  sudo ovs-ofctl -O $OF_VERSION dump-flows s0"
-echo ""
-echo "To clean up all flows on a switch (e.g., s0):"
-echo "  sudo ovs-ofctl -O $OF_VERSION del-flows s0"
+echo "INFO: Mininet session has ended."
+sleep 2 # Give a moment for ITGRecv to fully stop and release log files.
 
-# Optional: Final cleanup of Path 2 flows
-uninstall_path2
+# --- D-ITG Log Analysis ---
+echo "INFO: Analyzing D-ITG logs..."
+if [ -f "$DITG_RECEIVER_LOG_BASENAME" ]; then
+    echo "INFO: Decoding $DITG_RECEIVER_LOG_BASENAME with ITGDec..."
+    ITGDec "$DITG_RECEIVER_LOG_BASENAME" > "$DITG_DECODED_LOG_BASENAME"
+    echo "INFO: D-ITG results decoded into $DITG_DECODED_LOG_BASENAME"
+    echo ""
+    echo "--- D-ITG Analysis Results ---"
+
+    TOTAL_SENT_PACKETS=$(($DITG_PPS * $TOTAL_DURATION))
+    RECEIVED_PACKETS=$(grep "NUMBER OF RECEIVED PACKETS" "$DITG_DECODED_LOG_BASENAME" | awk '{print $NF}')
+    AVG_DELAY=$(grep "AVERAGE DELAY" "$DITG_DECODED_LOG_BASENAME" | awk '{print $3}')
+    UNIT_DELAY=$(grep "AVERAGE DELAY" "$DITG_DECODED_LOG_BASENAME" | awk '{print $4}')
+    # JITTER might be "AVERAGE JITTER" or "AVERAGE INTERARRIVAL JITTER" depending on D-ITG version
+    AVG_JITTER=$(grep "AVERAGE.*JITTER" "$DITG_DECODED_LOG_BASENAME" | head -n 1 | awk '{print $3}')
+    UNIT_JITTER=$(grep "AVERAGE.*JITTER" "$DITG_DECODED_LOG_BASENAME" | head -n 1 | awk '{print $4}')
+    # LOST_PACKETS_REPORTED=$(grep "LOST PACKETS" "$DITG_DECODED_LOG_BASENAME" | awk '{print $NF}') # If ITGDec reports it
+    OUT_OF_ORDER_PACKETS=$(grep "OUT-OF-ORDER PACKETS" "$DITG_DECODED_LOG_BASENAME" | awk '{print $NF}')
+    
+    echo "Total Packets Sent (calculated): $TOTAL_SENT_PACKETS"
+    echo "Total Packets Received: ${RECEIVED_PACKETS:-N/A (check $DITG_DECODED_LOG_BASENAME)}"
+    
+    if [[ -n "$RECEIVED_PACKETS" && "$RECEIVED_PACKETS" =~ ^[0-9]+$ && -n "$TOTAL_SENT_PACKETS" && "$TOTAL_SENT_PACKETS" -gt 0 ]]; then
+        LOST_PACKETS_CALCULATED=$(($TOTAL_SENT_PACKETS - $RECEIVED_PACKETS))
+        LOSS_PERCENTAGE=$(awk "BEGIN {printf \"%.2f%%\", ($LOST_PACKETS_CALCULATED*100)/$TOTAL_SENT_PACKETS}")
+        echo "Packets Lost (calculated): $LOST_PACKETS_CALCULATED ($LOSS_PERCENTAGE)"
+    else
+        echo "Packets Lost: N/A (could not calculate from received/sent)"
+    fi
+    
+    echo "Average One-Way Delay: ${AVG_DELAY:-N/A} ${UNIT_DELAY:-}"
+    echo "Average Jitter: ${AVG_JITTER:-N/A} ${UNIT_JITTER:-}"
+    echo "Out-of-Order Packets: ${OUT_OF_ORDER_PACKETS:-N/A (check $DITG_DECODED_LOG_BASENAME if this is empty)}"
+    echo "------------------------------"
+    echo "For detailed D-ITG results, see the file: $DITG_DECODED_LOG_BASENAME"
+else
+    echo "ERROR: D-ITG receiver log file ($DITG_RECEIVER_LOG_BASENAME) not found. Analysis cannot be performed."
+fi
+
+# --- Final Cleanup ---
+echo "INFO: Cleaning up any remaining Mininet processes..."
+sudo mn -c
+echo "INFO: Script finished."
