@@ -1,261 +1,171 @@
 #!/bin/bash
 
-# Script to run D-ITG test on Abilene topology with path change
-
 # --- Configuration ---
 PY_TOPO_FILE="AbileneTopo.py" # Your topology file name
 TOPO_NAME="abilenetopo"
-DURATION_SEC=60
-SWITCH_TIME_SEC=30
+SWITCH_DELAY_SEC=15 # Time to wait before switching paths
 
-SENDER_HOST="h0"
-RECEIVER_HOST="h5"
+SENDER_HOST_NAME="h0"
+RECEIVER_HOST_NAME="h5"
 
-SENDER_IP="10.0.0.1"  # IP of h0 (ensure your topo assigns these or adjust)
-RECEIVER_IP="10.0.0.6" # IP of h5 (ensure your topo assigns these or adjust)
+# MAC addresses (Mininet default: 00:00:00:00:00:0X for h(X-1))
+SENDER_MAC="00:00:00:00:00:01" # MAC of h0
+RECEIVER_MAC="00:00:00:00:00:06" # MAC of h5
 
-SENDER_MAC="00:00:00:00:00:01"
-RECEIVER_MAC="00:00:00:00:00:06"
+# IP addresses (Mininet default: 10.0.0.X for h(X-1))
+RECEIVER_IP="10.0.0.6" # IP of h5
 
-# D-ITG Parameters
-PACKET_SIZE=512
-PACKET_RATE=200
-TRAFFIC_TYPE="UDP"
-
-# Log files *inside* the Mininet host's /tmp directory
-DITG_LOG_RECV_ON_HOST="/tmp/itg_recv_log.txt"
-DITG_LOG_SEND_ON_HOST="/tmp/itg_send_log.txt"
-DITG_RECV_SUMMARY_ON_HOST="/tmp/itg_recv_summary.txt" # Log for -x on sender, written by receiver
-DITG_DECODED_OUTPUT_ON_HOST="/tmp/itg_decoded_results.txt"
-
-# Local copy of the decoded results for analysis
-DITG_DECODED_OUTPUT_LOCAL="itg_decoded_results.txt"
-
-MININET_MAIN_LOG="/tmp/mininet_main_run.log" # Log for the main Mininet process
+MININET_LOG="/tmp/mininet_simple_run.log"
 
 # --- Helper Functions ---
 cleanup() {
-    echo "Stopping Mininet and cleaning up..."
-    # Ensure ITGRecv and ITGSend are stopped on hosts
-    # Using pkill within the namespace is more robust
-    if sudo ip netns list | grep -q "$SENDER_HOST"; then
-        mn_exec "$SENDER_HOST" "pkill ITGSend"
+    echo "Cleaning up Mininet..."
+    if [ -n "$MININET_PID" ] && ps -p "$MININET_PID" > /dev/null; then
+        sudo kill -SIGINT "$MININET_PID"
+        wait "$MININET_PID" 2>/dev/null
     fi
-    if sudo ip netns list | grep -q "$RECEIVER_HOST"; then
-        mn_exec "$RECEIVER_HOST" "pkill ITGRecv"
-    fi
-
-    # Stop the main Mininet process
-    # mn -c is the most reliable way to clean up Mininet interfaces, OVS bridges etc.
-    sudo mn -c
-    echo "Mininet cleanup done."
-
-    echo "Cleaning up D-ITG log files from script directory..."
-    rm -f "$DITG_DECODED_OUTPUT_LOCAL"
-    # Note: Logs on hosts in /tmp will be cleared if the host namespaces are destroyed by mn -c
-    # or on VM reboot.
-    echo "Done."
+    sudo mn -c # General Mininet cleanup
+    echo "Cleanup complete."
 }
 
 # Function to execute commands within Mininet host namespace
-# Usage: mn_exec <host_name> <command_string>
-mn_exec() {
+mn_exec_simple() {
     local host_name=$1
     shift
     local cmd_string="$@"
-    echo "Executing on $host_name (ns): $cmd_string"
-    # Execute the command as root within the host's network namespace.
-    # 'cd /tmp' ensures relative log file paths for D-ITG are in /tmp within the host.
-    # The command string itself should handle backgrounding with '&' if needed.
-    sudo ip netns exec "$host_name" bash -c "cd /tmp && $cmd_string"
+    echo "Executing on $host_name: $cmd_string"
+    sudo ip netns exec "$host_name" bash -c "$cmd_string"
 }
 
-# Function to add flow rules.
-# IMPORTANT: Port numbers here are ASSUMPTIONS. VERIFY THEM!
+# Path 1: h0 -> s0 -> s2 -> s9 -> s8 -> s5 -> h5
+# Port numbers are ASSUMPTIONS. VERIFY THEM in Mininet CLI with 'links' or 'net'.
 set_path1_flows() {
     echo "Setting up Path 1 flows (h0 -> s0-s2-s9-s8-s5 -> h5)"
-    sudo ovs-ofctl add-flow s0 "priority=100,in_port=1,dl_dst=$RECEIVER_MAC,actions=output:3"
-    sudo ovs-ofctl add-flow s2 "priority=100,in_port=2,dl_dst=$RECEIVER_MAC,actions=output:3"
-    sudo ovs-ofctl add-flow s9 "priority=100,in_port=2,dl_dst=$RECEIVER_MAC,actions=output:3"
-    sudo ovs-ofctl add-flow s8 "priority=100,in_port=4,dl_dst=$RECEIVER_MAC,actions=output:2"
-    sudo ovs-ofctl add-flow s5 "priority=100,in_port=3,dl_dst=$RECEIVER_MAC,actions=output:1"
-    sudo ovs-ofctl add-flow s5 "priority=100,in_port=1,dl_dst=$SENDER_MAC,actions=output:3"
-    sudo ovs-ofctl add-flow s8 "priority=100,in_port=2,dl_dst=$SENDER_MAC,actions=output:4"
-    sudo ovs-ofctl add-flow s9 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:2"
-    sudo ovs-ofctl add-flow s2 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:2"
-    sudo ovs-ofctl add-flow s0 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:1"
+    # Forward path (h0 to h5)
+    sudo ovs-ofctl add-flow s0 "priority=100,in_port=1,dl_dst=$RECEIVER_MAC,actions=output:3" # h0(p1) -> s0 -> s2(p3)
+    sudo ovs-ofctl add-flow s2 "priority=100,in_port=2,dl_dst=$RECEIVER_MAC,actions=output:3" # s0(p2) -> s2 -> s9(p3)
+    sudo ovs-ofctl add-flow s9 "priority=100,in_port=2,dl_dst=$RECEIVER_MAC,actions=output:3" # s2(p2) -> s9 -> s8(p3)
+    sudo ovs-ofctl add-flow s8 "priority=100,in_port=4,dl_dst=$RECEIVER_MAC,actions=output:2" # s9(p4) -> s8 -> s5(p2)
+    sudo ovs-ofctl add-flow s5 "priority=100,in_port=3,dl_dst=$RECEIVER_MAC,actions=output:1" # s8(p3) -> s5 -> h5(p1)
+
+    # Reverse path (h5 to h0, for ping replies)
+    sudo ovs-ofctl add-flow s5 "priority=100,in_port=1,dl_dst=$SENDER_MAC,actions=output:3" # h5(p1) -> s5 -> s8(p3)
+    sudo ovs-ofctl add-flow s8 "priority=100,in_port=2,dl_dst=$SENDER_MAC,actions=output:4" # s5(p2) -> s8 -> s9(p4)
+    sudo ovs-ofctl add-flow s9 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:2" # s8(p3) -> s9 -> s2(p2)
+    sudo ovs-ofctl add-flow s2 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:2" # s9(p3) -> s2 -> s0(p2)
+    sudo ovs-ofctl add-flow s0 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:1" # s2(p3) -> s0 -> h0(p1)
 }
 
+# Path 2: h0 -> s0 -> s1 -> s10 -> s7 -> s6 -> s4 -> s5 -> h5
+# Port numbers are ASSUMPTIONS. VERIFY THEM!
 set_path2_flows() {
     echo "Setting up Path 2 flows (h0 -> s0-s1-s10-s7-s6-s4-s5 -> h5)"
-    sudo ovs-ofctl add-flow s0 "priority=100,in_port=1,dl_dst=$RECEIVER_MAC,actions=output:2"
-    sudo ovs-ofctl add-flow s1 "priority=100,in_port=2,dl_dst=$RECEIVER_MAC,actions=output:3"
-    sudo ovs-ofctl add-flow s10 "priority=100,in_port=2,dl_dst=$RECEIVER_MAC,actions=output:3"
-    sudo ovs-ofctl add-flow s7 "priority=100,in_port=4,dl_dst=$RECEIVER_MAC,actions=output:2"
-    sudo ovs-ofctl add-flow s6 "priority=100,in_port=4,dl_dst=$RECEIVER_MAC,actions=output:3"
-    sudo ovs-ofctl add-flow s4 "priority=100,in_port=4,dl_dst=$RECEIVER_MAC,actions=output:3"
-    sudo ovs-ofctl add-flow s5 "priority=100,in_port=2,dl_dst=$RECEIVER_MAC,actions=output:1"
-    sudo ovs-ofctl add-flow s5 "priority=100,in_port=1,dl_dst=$SENDER_MAC,actions=output:2"
-    sudo ovs-ofctl add-flow s4 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:4"
-    sudo ovs-ofctl add-flow s6 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:4"
-    sudo ovs-ofctl add-flow s7 "priority=100,in_port=2,dl_dst=$SENDER_MAC,actions=output:4"
-    sudo ovs-ofctl add-flow s10 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:2"
-    sudo ovs-ofctl add-flow s1 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:2"
-    sudo ovs-ofctl add-flow s0 "priority=100,in_port=2,dl_dst=$SENDER_MAC,actions=output:1"
+    # Forward path (h0 to h5)
+    sudo ovs-ofctl add-flow s0 "priority=100,in_port=1,dl_dst=$RECEIVER_MAC,actions=output:2"  # h0(p1) -> s0 -> s1(p2)
+    sudo ovs-ofctl add-flow s1 "priority=100,in_port=2,dl_dst=$RECEIVER_MAC,actions=output:3"  # s0(p2) -> s1 -> s10(p3)
+    sudo ovs-ofctl add-flow s10 "priority=100,in_port=2,dl_dst=$RECEIVER_MAC,actions=output:3" # s1(p2) -> s10 -> s7(p3)
+    sudo ovs-ofctl add-flow s7 "priority=100,in_port=4,dl_dst=$RECEIVER_MAC,actions=output:2"  # s10(p4) -> s7 -> s6(p2)
+    sudo ovs-ofctl add-flow s6 "priority=100,in_port=4,dl_dst=$RECEIVER_MAC,actions=output:3"  # s7(p4) -> s6 -> s4(p3)
+    sudo ovs-ofctl add-flow s4 "priority=100,in_port=4,dl_dst=$RECEIVER_MAC,actions=output:3"  # s6(p4) -> s4 -> s5(p3)
+    sudo ovs-ofctl add-flow s5 "priority=100,in_port=2,dl_dst=$RECEIVER_MAC,actions=output:1"  # s4(p2) -> s5 -> h5(p1)
+
+    # Reverse path (h5 to h0, for ping replies)
+    sudo ovs-ofctl add-flow s5 "priority=100,in_port=1,dl_dst=$SENDER_MAC,actions=output:2"  # h5(p1) -> s5 -> s4(p2)
+    sudo ovs-ofctl add-flow s4 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:4"  # s5(p3) -> s4 -> s6(p4)
+    sudo ovs-ofctl add-flow s6 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:4"  # s4(p3) -> s6 -> s7(p4)
+    sudo ovs-ofctl add-flow s7 "priority=100,in_port=2,dl_dst=$SENDER_MAC,actions=output:4"  # s6(p2) -> s7 -> s10(p4)
+    sudo ovs-ofctl add-flow s10 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:2" # s7(p3) -> s10 -> s1(p2)
+    sudo ovs-ofctl add-flow s1 "priority=100,in_port=3,dl_dst=$SENDER_MAC,actions=output:2"  # s10(p3) -> s1 -> s0(p2)
+    sudo ovs-ofctl add-flow s0 "priority=100,in_port=2,dl_dst=$SENDER_MAC,actions=output:1"  # s1(p2) -> s0 -> h0(p1)
 }
 
 delete_all_flows() {
-    echo "Deleting all flows from switches..."
+    echo "Deleting all flows from all switches..."
     for i in {0..10}; do
         sudo ovs-ofctl del-flows "s$i"
     done
 }
 
 # --- Main Script ---
-trap cleanup EXIT # Call cleanup function on script exit
+trap cleanup EXIT # Call cleanup function on script exit (Ctrl+C, normal exit)
 
 # 0. Initial Mininet cleanup
 sudo mn -c
 
-# 1. Start Mininet in the background using nohup for robustness
-echo "Starting Mininet with topology $TOPO_NAME from $PY_TOPO_FILE..."
-# nohup ensures the process isn't killed when the shell exits
-# Stdin is redirected from /dev/null, stdout/stderr to a log file
-sudo nohup mn --custom "$PY_TOPO_FILE" --topo "$TOPO_NAME" --controller=remote --mac --link=tc < /dev/null > "$MININET_MAIN_LOG" 2>&1 &
-# The PID captured by $! for nohup might be nohup itself or the shell used by sudo.
-# What matters is that Mininet process is running. `mn -c` will find and kill it.
-echo "Mininet start initiated. Log: $MININET_MAIN_LOG. Waiting for it to initialize..."
-sleep 15 # Crucial: Give Mininet ample time to start all switches, hosts, and namespaces.
-         # Check $MININET_MAIN_LOG for "mininet>" prompt or "completed" messages.
-         # If it says "completed" too soon, Mininet isn't staying up.
+# 1. Start Mininet in the background
+# We use a trick: start Mininet and have it execute a long sleep command internally.
+# This keeps the Mininet process alive.
+# The sleep duration should be longer than your script's expected runtime.
+KEEPALIVE_DURATION=$((SWITCH_DELAY_SEC + 30)) # e.g., 15s switch + 30s buffer
 
-# Verify Mininet is running and created OVS bridges and host namespaces
-if ! sudo ovs-vsctl show > /dev/null 2>&1; then
-    echo "ERROR: ovs-vsctl failed. Open vSwitch might not be running or Mininet failed to start correctly."
-    cat "$MININET_MAIN_LOG"
-    exit 1
-fi
+echo "Starting Mininet with topology $TOPO_NAME from $PY_TOPO_FILE (will stay alive for $KEEPALIVE_DURATION s)..."
+sudo mn --custom "$PY_TOPO_FILE" --topo "$TOPO_NAME" --controller=remote --mac --link=tc \
+         bash -c "echo Mininet CLI is running a sleep for $KEEPALIVE_DURATION seconds to keep the network up.; sleep $KEEPALIVE_DURATION" > "$MININET_LOG" 2>&1 &
+MININET_PID=$! # Get PID of the mn command itself
+
+echo "Mininet started with PID $MININET_PID. Log: $MININET_LOG. Waiting for it to initialize..."
+sleep 15 # Give Mininet ample time to start up, create OVS bridges and host namespaces.
+         # Check $MININET_LOG for errors or "Mininet CLI is running..." message.
+
+# Verify Mininet started correctly and OVS bridges exist
 if ! sudo ovs-vsctl list-br | grep -q s0; then
-    echo "ERROR: Mininet switch s0 not found by ovs-vsctl. Mininet might have failed to initialize OVS bridges."
-    echo "Check $MININET_MAIN_LOG"
-    cat "$MININET_MAIN_LOG"
+    echo "ERROR: Mininet switch s0 not found. Mininet might have failed to start."
+    echo "Check log: $MININET_LOG"
+    cat "$MININET_LOG"
     exit 1
 fi
-if ! sudo ip netns list | grep -q "$SENDER_HOST"; then
-    echo "ERROR: Network namespace for $SENDER_HOST not found. Mininet host setup failed."
-    echo "Check $MININET_MAIN_LOG"
-    cat "$MININET_MAIN_LOG"
+if ! sudo ip netns list | grep -q $SENDER_HOST_NAME; then
+    echo "ERROR: Network namespace for $SENDER_HOST_NAME not found."
+    echo "Check log: $MININET_LOG"
+    cat "$MININET_LOG"
     exit 1
 fi
-echo "Mininet seems to be running with OVS bridges and host namespaces."
+echo "Mininet seems to be running."
 
-
-echo "VERIFY PORT NUMBERS! The script uses assumed port numbers."
-echo "You can check them in another terminal: sudo mn (connects to existing), then 'links' or 'net'."
-echo "Or check flows: 'sudo ovs-ofctl dump-flows sX'"
-echo "Pausing for 10 seconds for you to check if needed..."
+echo ""
+echo "IMPORTANT: The port numbers in flow rules are ASSUMPTIONS."
+echo "If pings fail, verify port numbers by opening a new terminal, running 'sudo mn -c && sudo mn --custom $PY_TOPO_FILE --topo $TOPO_NAME --controller=remote -x', then using 'links' or 'net' in the Mininet CLI."
+echo "Then adjust set_path1_flows and set_path2_flows in this script."
+echo "Pausing for 10s for you to read this / prepare to check ports if needed..."
 sleep 10
 
-# 2. Delete any existing flows
+
+# 2. Delete any existing flows (good practice)
 delete_all_flows
 
 # 3. Set initial path (Path 1)
 set_path1_flows
 echo "Initial flows (Path 1) set."
 
-# 4. Start D-ITG Receiver on RECEIVER_HOST
-echo "Starting ITGRecv on $RECEIVER_HOST..."
-mn_exec "$RECEIVER_HOST" "ITGRecv -l $DITG_LOG_RECV_ON_HOST &"
-sleep 2
+# 4. Test connectivity on Path 1
+echo "Pinging $RECEIVER_HOST_NAME ($RECEIVER_IP) from $SENDER_HOST_NAME on Path 1..."
+mn_exec_simple "$SENDER_HOST_NAME" "ping -c 3 $RECEIVER_IP"
+if [ $? -eq 0 ]; then
+    echo "Ping on Path 1 SUCCESSFUL."
+else
+    echo "Ping on Path 1 FAILED. Check flow rules and port numbers!"
+fi
+echo ""
 
-# 5. Start D-ITG Sender on SENDER_HOST
-DURATION_MS=$((DURATION_SEC * 1000))
-echo "Starting ITGSend on $SENDER_HOST to $RECEIVER_IP for $DURATION_SEC seconds..."
-mn_exec "$SENDER_HOST" "ITGSend -T $TRAFFIC_TYPE -a $RECEIVER_IP -c $PACKET_SIZE -C $PACKET_RATE -t $DURATION_MS -l $DITG_LOG_SEND_ON_HOST -x $DITG_RECV_SUMMARY_ON_HOST &"
-sleep 1
+# 5. Wait for SWITCH_DELAY_SEC
+echo "Waiting for $SWITCH_DELAY_SEC seconds before switching paths..."
+sleep "$SWITCH_DELAY_SEC"
 
-# 6. Wait until SWITCH_TIME_SEC
-echo "Traffic flowing on Path 1 for $SWITCH_TIME_SEC seconds..."
-sleep "$SWITCH_TIME_SEC"
-
-# 7. Change the route
+# 6. Change the route: Delete Path 1 flows, Add Path 2 flows
 echo "Switching to Path 2..."
 delete_all_flows
 set_path2_flows
 echo "Flows switched to Path 2."
 
-# 8. Wait for D-ITG to complete the remaining duration
-REMAINING_TIME_SEC=$((DURATION_SEC - SWITCH_TIME_SEC))
-if [ $REMAINING_TIME_SEC -gt 0 ]; then
-    echo "Traffic flowing on Path 2 for $REMAINING_TIME_SEC seconds..."
-    sleep "$REMAINING_TIME_SEC"
-fi
-
-echo "Waiting for ITGSend to finish completely (extra buffer)..."
-sleep 5 # Buffer for ITGSend to ensure it finishes writing logs
-
-# 9. Stop ITGRecv (explicitly, though cleanup trap also tries)
-echo "Attempting to stop ITGRecv on $RECEIVER_HOST..."
-mn_exec "$RECEIVER_HOST" "pkill ITGRecv"
-sleep 1
-
-# 10. Decode D-ITG logs
-echo "Decoding D-ITG receiver log from host $RECEIVER_HOST..."
-# Run ITGDec inside the receiver host, outputting to its /tmp
-mn_exec "$RECEIVER_HOST" "ITGDec $DITG_LOG_RECV_ON_HOST -o $DITG_DECODED_OUTPUT_ON_HOST"
-sleep 1 # give ITGDec a moment
-
-echo "Copying decoded log from $RECEIVER_HOST:$DITG_DECODED_OUTPUT_ON_HOST to local $DITG_DECODED_OUTPUT_LOCAL"
-if sudo ip netns exec "$RECEIVER_HOST" test -f "$DITG_DECODED_OUTPUT_ON_HOST"; then
-    # Copy content by 'cat'ing from namespace to local file
-    sudo ip netns exec "$RECEIVER_HOST" cat "$DITG_DECODED_OUTPUT_ON_HOST" > "$DITG_DECODED_OUTPUT_LOCAL"
-    if [ -s "$DITG_DECODED_OUTPUT_LOCAL" ]; then
-        echo "Decoded output successfully copied to $DITG_DECODED_OUTPUT_LOCAL"
-    else
-        echo "WARNING: Copied $DITG_DECODED_OUTPUT_LOCAL is empty. $RECEIVER_HOST:$DITG_DECODED_OUTPUT_ON_HOST might be empty."
-        echo "Contents of /tmp on $RECEIVER_HOST:"
-        mn_exec "$RECEIVER_HOST" "ls -l /tmp"
-        echo "Content of raw receiver log $DITG_LOG_RECV_ON_HOST on $RECEIVER_HOST (if exists):"
-        mn_exec "$RECEIVER_HOST" "cat $DITG_LOG_RECV_ON_HOST"
-    fi
+# 7. Test connectivity on Path 2
+echo "Pinging $RECEIVER_HOST_NAME ($RECEIVER_IP) from $SENDER_HOST_NAME on Path 2..."
+mn_exec_simple "$SENDER_HOST_NAME" "ping -c 3 $RECEIVER_IP"
+if [ $? -eq 0 ]; then
+    echo "Ping on Path 2 SUCCESSFUL."
 else
-    echo "ERROR: $DITG_DECODED_OUTPUT_ON_HOST not found on $RECEIVER_HOST. Cannot copy."
-    echo "Contents of /tmp on $RECEIVER_HOST:"
-    mn_exec "$RECEIVER_HOST" "ls -l /tmp"
-    echo "Content of raw receiver log $DITG_LOG_RECV_ON_HOST on $RECEIVER_HOST (if exists):"
-    mn_exec "$RECEIVER_HOST" "cat $DITG_LOG_RECV_ON_HOST"
+    echo "Ping on Path 2 FAILED. Check flow rules and port numbers!"
 fi
+echo ""
 
-
-# 11. Analyze Results
-echo "--- D-ITG Analysis (from $DITG_DECODED_OUTPUT_LOCAL) ---"
-if [ -f "$DITG_DECODED_OUTPUT_LOCAL" ] && [ -s "$DITG_DECODED_OUTPUT_LOCAL" ]; then
-    TOTAL_PACKETS_SENT=$(echo "$PACKET_RATE * $DURATION_SEC" | bc)
-    echo "Expected packets sent by ITGSend: $TOTAL_PACKETS_SENT (approx, based on rate)"
-
-    RECEIVED_PACKETS=$(wc -l < "$DITG_DECODED_OUTPUT_LOCAL")
-    echo "Total packets received and decoded: $RECEIVED_PACKETS"
-
-    PACKET_LOSS=$(echo "$TOTAL_PACKETS_SENT - $RECEIVED_PACKETS" | bc)
-    if [ "$TOTAL_PACKETS_SENT" -gt 0 ]; then
-        LOSS_PERCENTAGE=$(awk -v sent="$TOTAL_PACKETS_SENT" -v recv="$RECEIVED_PACKETS" 'BEGIN { if (sent > 0) printf "%.2f", (sent-recv)*100/sent else print "N/A"}')
-        echo "Calculated Packet Loss: $PACKET_LOSS packets ($LOSS_PERCENTAGE%)"
-    else
-        echo "Calculated Packet Loss: N/A (no packets sent or rate is zero)"
-    fi
-
-    AVG_LATENCY_MS=$(awk '{ total_delay += $5; count++ } END { if (count > 0) printf "%.3f", (total_delay / count) * 1000 else print "N/A" }' "$DITG_DECODED_OUTPUT_LOCAL")
-    echo "Average One-Way Delay (Latency): $AVG_LATENCY_MS ms"
-
-    OUT_OF_ORDER_COUNT=$(awk '
-        BEGIN { last_seq = -1; ooo_count = 0; }
-        { current_seq = $2; if (last_seq != -1 && current_seq < last_seq) { ooo_count++; } if (current_seq > last_seq || last_seq == -1) { last_seq = current_seq; } }
-        END { print ooo_count; }
-    ' "$DITG_DECODED_OUTPUT_LOCAL")
-    echo "Out-of-Order Packets Received: $OUT_OF_ORDER_COUNT"
-else
-    echo "Could not find or process local $DITG_DECODED_OUTPUT_LOCAL. Analysis skipped."
-fi
-
-echo "--- Experiment Finished ---"
-# Cleanup will be called by trap EXIT
+echo "Experiment finished. Mininet will be stopped by the cleanup trap or when its internal sleep finishes."
+# The trap EXIT will call cleanup()
