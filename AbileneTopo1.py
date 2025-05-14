@@ -23,17 +23,17 @@ class AbileneTopo(Topo):
 
         # 1. Add Switches
         # We'll use s0, s1, ... for switch names, corresponding to GML IDs.
-        s0 = self.addSwitch('s0', protocols='OpenFlow13')  # New York
-        s1 = self.addSwitch('s1', protocols='OpenFlow13')  # Chicago
-        s2 = self.addSwitch('s2', protocols='OpenFlow13')  # Washington DC
-        s3 = self.addSwitch('s3', protocols='OpenFlow13')  # Seattle
-        s4 = self.addSwitch('s4', protocols='OpenFlow13')  # Sunnyvale
-        s5 = self.addSwitch('s5', protocols='OpenFlow13')  # Los Angeles
-        s6 = self.addSwitch('s6', protocols='OpenFlow13')  # Denver
-        s7 = self.addSwitch('s7', protocols='OpenFlow13')  # Kansas City
-        s8 = self.addSwitch('s8', protocols='OpenFlow13')  # Houston
-        s9 = self.addSwitch('s9', protocols='OpenFlow13')  # Atlanta
-        s10 = self.addSwitch('s10', protocols='OpenFlow13') # Indianapolis
+        s0 = self.addSwitch('s0')  # New York
+        s1 = self.addSwitch('s1')  # Chicago
+        s2 = self.addSwitch('s2')  # Washington DC
+        s3 = self.addSwitch('s3')  # Seattle
+        s4 = self.addSwitch('s4')  # Sunnyvale
+        s5 = self.addSwitch('s5')  # Los Angeles
+        s6 = self.addSwitch('s6')  # Denver
+        s7 = self.addSwitch('s7')  # Kansas City
+        s8 = self.addSwitch('s8')  # Houston
+        s9 = self.addSwitch('s9')  # Atlanta
+        s10 = self.addSwitch('s10') # Indianapolis
 
         # Store switches in a list for easier linking by GML ID
         switches = [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10]
@@ -41,17 +41,17 @@ class AbileneTopo(Topo):
         # 2. Add Hosts
         # Adding one host per switch, named h0, h1, ...
         # Assigning predictable IPs and MACs is helpful for manual flow rules.
-        h0 = self.addHost('h0', ip='10.0.0.0/24', mac='00:00:00:00:00:00')
-        h1 = self.addHost('h1', ip='10.0.0.1/24', mac='00:00:00:00:00:01')
-        h2 = self.addHost('h2', ip='10.0.0.2/24', mac='00:00:00:00:00:02')
-        h3 = self.addHost('h3', ip='10.0.0.3/24', mac='00:00:00:00:00:03')
-        h4 = self.addHost('h4', ip='10.0.0.4/24', mac='00:00:00:00:00:04')
-        h5 = self.addHost('h5', ip='10.0.0.5/24', mac='00:00:00:00:00:05')
-        h6 = self.addHost('h6', ip='10.0.0.6/24', mac='00:00:00:00:00:06')
-        h7 = self.addHost('h7', ip='10.0.0.7/24', mac='00:00:00:00:00:07')
-        h8 = self.addHost('h8', ip='10.0.0.8/24', mac='00:00:00:00:00:08')
-        h9 = self.addHost('h9', ip='10.0.0.9/24', mac='00:00:00:00:00:09')
-        h10 = self.addHost('h10', ip='10.0.0.10/24', mac='00:00:00:00:00:0A')
+        h0 = self.addHost('h0')
+        h1 = self.addHost('h1')
+        h2 = self.addHost('h2')
+        h3 = self.addHost('h3')
+        h4 = self.addHost('h4')
+        h5 = self.addHost('h5')
+        h6 = self.addHost('h6')
+        h7 = self.addHost('h7')
+        h8 = self.addHost('h8')
+        h9 = self.addHost('h9')
+        h10 = self.addHost('h10')
 
         # Store hosts in a list for easier linking
         hosts = [h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10]
