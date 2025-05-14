@@ -58,23 +58,23 @@ class AbileneTopo(Topo):
 
         # 3. Add Links: Host to Switch
         for i in range(len(hosts)):
-            self.addLink(hosts[i], switches[i]) # e.g., h0 to s0, h1 to s1
+            self.addLink(hosts[i], switches[i], delay='1ms') # e.g., h0 to s0, h1 to s1
 
         # 4. Add Links: Switch to Switch (Inter-switch links from GML)
-        self.addLink(s0, s1)   # NY - Chicago
-        self.addLink(s0, s2)   # NY - DC
-        self.addLink(s1, s10)  # Chicago - Indianapolis
-        self.addLink(s2, s9)   # DC - Atlanta
-        self.addLink(s3, s4)   # Seattle - Sunnyvale
-        self.addLink(s3, s6)   # Seattle - Denver
-        self.addLink(s4, s5)   # Sunnyvale - LA
-        self.addLink(s4, s6)   # Sunnyvale - Denver
-        self.addLink(s5, s8)   # LA - Houston
-        self.addLink(s6, s7)   # Denver - Kansas City
-        self.addLink(s7, s8)   # Kansas City - Houston
-        self.addLink(s7, s10)  # Kansas City - Indianapolis
-        self.addLink(s8, s9)   # Houston - Atlanta
-        self.addLink(s9, s10)  # Atlanta - Indianapolis
+        self.addLink(s0, s1, delay='2ms')   # NY - Chicago
+        self.addLink(s0, s2, delay='2ms')   # NY - DC
+        self.addLink(s1, s10, delay='2ms')  # Chicago - Indianapolis
+        self.addLink(s2, s9, delay='2ms')   # DC - Atlanta
+        self.addLink(s3, s4, delay='2ms')   # Seattle - Sunnyvale
+        self.addLink(s3, s6, delay='2ms')   # Seattle - Denver
+        self.addLink(s4, s5, delay='2ms')   # Sunnyvale - LA
+        self.addLink(s4, s6, delay='2ms')   # Sunnyvale - Denver
+        self.addLink(s5, s8, delay='2ms')   # LA - Houston
+        self.addLink(s6, s7, delay='2ms')   # Denver - Kansas City
+        self.addLink(s7, s8, delay='2ms')   # Kansas City - Houston
+        self.addLink(s7, s10, delay='2ms')  # Kansas City - Indianapolis
+        self.addLink(s8, s9, delay='2ms')   # Houston - Atlanta
+        self.addLink(s9, s10, delay='2ms')  # Atlanta - Indianapolis
 
 # This dictionary is necessary for Mininet to find your topology
 topos = {'abilenetopo': (lambda: AbileneTopo())}
