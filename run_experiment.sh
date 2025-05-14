@@ -4,7 +4,7 @@
 sudo mn -c
 
 # Run Mininet with your topology and remote controller
-sudo mn --custom ablene_topology.py --topo abilenetopo --controller=remote --link tc &
+sudo mn --custom AbileneTopo.py --topo abilenetopo --controller=remote --link tc &
 
 # Wait for the network to be ready
 sleep 5
