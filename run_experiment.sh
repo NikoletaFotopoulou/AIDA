@@ -20,6 +20,10 @@ DITG_SENDER_LOG_BASENAME="itg_sender.log"
 DITG_RECEIVER_LOG_BASENAME="itg_receiver.log"
 DITG_DECODED_LOG_BASENAME="itg_decoded_results.txt"
 
+# --- PRE-CALCULATE VALUES NEEDED INSIDE MININET EOF ---
+DITG_DURATION_MS_CALCULATED=$(($TOTAL_DURATION * 1000))
+REMAINING_TIME_CALCULATED=$(($TOTAL_DURATION - $SWITCH_OVER_TIME))
+
 # --- Sanity Checks ---
 if ! command -v ITGRecv &> /dev/null || ! command -v ITGSend &> /dev/null || ! command -v ITGDec &> /dev/null; then
     echo "ERROR: D-ITG commands (ITGRecv, ITGSend, ITGDec) not found."
@@ -41,6 +45,9 @@ rm -f $DITG_SENDER_LOG_BASENAME $DITG_RECEIVER_LOG_BASENAME $DITG_DECODED_LOG_BA
 echo "INFO: Starting Mininet and running the experiment..."
 echo "      Total D-ITG duration: $TOTAL_DURATION seconds."
 echo "      Path switch will occur at: $SWITCH_OVER_TIME seconds."
+echo "      D-ITG sender duration in ms: $DITG_DURATION_MS_CALCULATED"
+echo "      Time on second path: $REMAINING_TIME_CALCULATED seconds"
+
 
 # The 'sudo mn ... << EOF' block runs a single Mininet session.
 # Commands inside are executed as if typed into the Mininet CLI.
@@ -79,15 +86,12 @@ sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=
 # --- Start D-ITG Traffic ---
 sh echo "[MN] Starting D-ITG Receiver on $H_DST ($H_DST_IP)..."
 $H_DST ITGRecv -l ../$DITG_RECEIVER_LOG_BASENAME &
-ITGRECV_PID=\$! # Capture PID if needed, though pkill is often more reliable
-sh echo "[MN] D-ITG Receiver started on $H_DST. PID: \$ITGRECV_PID"
+sh echo "[MN] D-ITG Receiver started on $H_DST."
 sh sleep 2 # Give receiver a moment to bind
 
-DITG_DURATION_MS=\$(($TOTAL_DURATION * 1000))
-sh echo "[MN] Starting D-ITG Sender on $H_SRC to $H_DST_IP for $TOTAL_DURATION seconds ($DITG_DURATION_MS ms)..."
-$H_SRC ITGSend -a $H_DST_IP -T UDP -c $DITG_PKT_SIZE -C $DITG_PPS -t \$DITG_DURATION_MS -l ../$DITG_SENDER_LOG_BASENAME -x ../$DITG_RECEIVER_LOG_BASENAME &
-ITGSEND_PID=\$!
-sh echo "[MN] D-ITG Sender started on $H_SRC. PID: \$ITGSEND_PID"
+sh echo "[MN] Starting D-ITG Sender on $H_SRC to $H_DST_IP for $TOTAL_DURATION seconds ($DITG_DURATION_MS_CALCULATED ms)..."
+$H_SRC ITGSend -a $H_DST_IP -T UDP -c $DITG_PKT_SIZE -C $DITG_PPS -t $DITG_DURATION_MS_CALCULATED -l ../$DITG_SENDER_LOG_BASENAME -x ../$DITG_RECEIVER_LOG_BASENAME &
+sh echo "[MN] D-ITG Sender started on $H_SRC."
 
 # --- Wait for Path Switch Time ---
 sh echo "[MN] Running traffic on PATH 1 for $SWITCH_OVER_TIME seconds..."
@@ -116,16 +120,14 @@ sh sudo ovs-ofctl add-flow s9 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=
 sh sudo ovs-ofctl add-flow s2 "priority=100,in_port=2,dl_dst=$H_SRC_MAC,actions=output:3"  # s9(p2) -> s2(p3) -> s0
 sh sudo ovs-ofctl add-flow s0 "priority=100,in_port=3,dl_dst=$H_SRC_MAC,actions=output:1"  # s2(p3) -> s0(p1) -> h0
 
-REMAINING_TIME=\$(($TOTAL_DURATION - $SWITCH_OVER_TIME))
-sh echo "[MN] Traffic running on PATH 2 for \$REMAINING_TIME seconds..."
-sh sleep \$REMAINING_TIME
+sh echo "[MN] Traffic running on PATH 2 for $REMAINING_TIME_CALCULATED seconds..."
+sh sleep $REMAINING_TIME_CALCULATED
 
 # --- End of D-ITG Traffic & Cleanup in Mininet ---
 sh echo "[MN] D-ITG sender should be finished. Waiting a few more seconds..."
 sh sleep 5 # Allow logs to flush, sender to fully complete
 
 sh echo "[MN] Stopping D-ITG Receiver on $H_DST..."
-# $H_DST kill -SIGINT \$ITGRECV_PID # Using PID can be unreliable here
 $H_DST pkill -SIGINT ITGRecv # More robust: kills ITGRecv by name on h5
 
 sh echo "[MN] Experiment finished within Mininet. Exiting Mininet CLI."
@@ -146,33 +148,60 @@ if [ -f "$DITG_RECEIVER_LOG_BASENAME" ]; then
     echo "--- D-ITG Analysis Results ---"
 
     TOTAL_SENT_PACKETS=$(($DITG_PPS * $TOTAL_DURATION))
-    RECEIVED_PACKETS=$(grep "NUMBER OF RECEIVED PACKETS" "$DITG_DECODED_LOG_BASENAME" | awk '{print $NF}')
-    AVG_DELAY=$(grep "AVERAGE DELAY" "$DITG_DECODED_LOG_BASENAME" | awk '{print $3}')
-    UNIT_DELAY=$(grep "AVERAGE DELAY" "$DITG_DECODED_LOG_BASENAME" | awk '{print $4}')
-    # JITTER might be "AVERAGE JITTER" or "AVERAGE INTERARRIVAL JITTER" depending on D-ITG version
-    AVG_JITTER=$(grep "AVERAGE.*JITTER" "$DITG_DECODED_LOG_BASENAME" | head -n 1 | awk '{print $3}')
-    UNIT_JITTER=$(grep "AVERAGE.*JITTER" "$DITG_DECODED_LOG_BASENAME" | head -n 1 | awk '{print $4}')
-    # LOST_PACKETS_REPORTED=$(grep "LOST PACKETS" "$DITG_DECODED_LOG_BASENAME" | awk '{print $NF}') # If ITGDec reports it
-    OUT_OF_ORDER_PACKETS=$(grep "OUT-OF-ORDER PACKETS" "$DITG_DECODED_LOG_BASENAME" | awk '{print $NF}')
+    # Correctly parse from the decoded log, ensuring we handle cases where the line might be missing
+    RECEIVED_PACKETS_LINE=$(grep "NUMBER OF RECEIVED PACKETS" "$DITG_DECODED_LOG_BASENAME")
+    RECEIVED_PACKETS=$(echo "$RECEIVED_PACKETS_LINE" | awk '{print $NF}')
+
+    AVG_DELAY_LINE=$(grep "AVERAGE DELAY" "$DITG_DECODED_LOG_BASENAME")
+    AVG_DELAY=$(echo "$AVG_DELAY_LINE" | awk '{print $3}')
+    UNIT_DELAY=$(echo "$AVG_DELAY_LINE" | awk '{print $4}')
+    
+    AVG_JITTER_LINE=$(grep "AVERAGE.*JITTER" "$DITG_DECODED_LOG_BASENAME" | head -n 1) # Handles "AVERAGE JITTER" or "AVERAGE INTERARRIVAL JITTER"
+    AVG_JITTER=$(echo "$AVG_JITTER_LINE" | awk '{print $3}')
+    UNIT_JITTER=$(echo "$AVG_JITTER_LINE" | awk '{print $4}')
+    
+    OUT_OF_ORDER_LINE=$(grep "OUT-OF-ORDER PACKETS" "$DITG_DECODED_LOG_BASENAME")
+    OUT_OF_ORDER_PACKETS=$(echo "$OUT_OF_ORDER_LINE" | awk '{print $NF}')
     
     echo "Total Packets Sent (calculated): $TOTAL_SENT_PACKETS"
-    echo "Total Packets Received: ${RECEIVED_PACKETS:-N/A (check $DITG_DECODED_LOG_BASENAME)}"
-    
-    if [[ -n "$RECEIVED_PACKETS" && "$RECEIVED_PACKETS" =~ ^[0-9]+$ && -n "$TOTAL_SENT_PACKETS" && "$TOTAL_SENT_PACKETS" -gt 0 ]]; then
+    if [[ -n "$RECEIVED_PACKETS" && "$RECEIVED_PACKETS" =~ ^[0-9]+$ ]]; then
+        echo "Total Packets Received: $RECEIVED_PACKETS"
         LOST_PACKETS_CALCULATED=$(($TOTAL_SENT_PACKETS - $RECEIVED_PACKETS))
-        LOSS_PERCENTAGE=$(awk "BEGIN {printf \"%.2f%%\", ($LOST_PACKETS_CALCULATED*100)/$TOTAL_SENT_PACKETS}")
+        if [ "$TOTAL_SENT_PACKETS" -gt 0 ]; then # Avoid division by zero
+            LOSS_PERCENTAGE=$(awk "BEGIN {printf \"%.2f%%\", ($LOST_PACKETS_CALCULATED*100)/$TOTAL_SENT_PACKETS}")
+        else
+            LOSS_PERCENTAGE="N/A (0 sent)"
+        fi
         echo "Packets Lost (calculated): $LOST_PACKETS_CALCULATED ($LOSS_PERCENTAGE)"
     else
-        echo "Packets Lost: N/A (could not calculate from received/sent)"
+        echo "Total Packets Received: N/A (check $DITG_DECODED_LOG_BASENAME for 'NUMBER OF RECEIVED PACKETS')"
+        echo "Packets Lost: N/A (could not calculate)"
     fi
     
-    echo "Average One-Way Delay: ${AVG_DELAY:-N/A} ${UNIT_DELAY:-}"
-    echo "Average Jitter: ${AVG_JITTER:-N/A} ${UNIT_JITTER:-}"
-    echo "Out-of-Order Packets: ${OUT_OF_ORDER_PACKETS:-N/A (check $DITG_DECODED_LOG_BASENAME if this is empty)}"
+    if [[ -n "$AVG_DELAY" ]]; then
+        echo "Average One-Way Delay: $AVG_DELAY ${UNIT_DELAY:-}"
+    else
+        echo "Average One-Way Delay: N/A (check $DITG_DECODED_LOG_BASENAME for 'AVERAGE DELAY')"
+    fi
+
+    if [[ -n "$AVG_JITTER" ]]; then
+        echo "Average Jitter: $AVG_JITTER ${UNIT_JITTER:-}"
+    else
+        echo "Average Jitter: N/A (check $DITG_DECODED_LOG_BASENAME for 'AVERAGE JITTER')"
+    fi
+
+    if [[ -n "$OUT_OF_ORDER_PACKETS" ]]; then
+        echo "Out-of-Order Packets: $OUT_OF_ORDER_PACKETS"
+    else
+        echo "Out-of-Order Packets: N/A (check $DITG_DECODED_LOG_BASENAME for 'OUT-OF-ORDER PACKETS')"
+    fi
+
     echo "------------------------------"
     echo "For detailed D-ITG results, see the file: $DITG_DECODED_LOG_BASENAME"
 else
     echo "ERROR: D-ITG receiver log file ($DITG_RECEIVER_LOG_BASENAME) not found. Analysis cannot be performed."
+    echo "       This usually means ITGRecv did not run correctly or couldn't write its log file."
+    echo "       Check for errors earlier in the Mininet session output, especially around '[MN] Starting D-ITG Receiver'."
 fi
 
 # --- Final Cleanup ---
