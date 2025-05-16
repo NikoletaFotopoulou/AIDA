@@ -1,58 +1,80 @@
 from mininet.topo import Topo
-from mininet.link import TCLink # Import TCLink for delay and bw
 
 class AbileneTopo(Topo):
-    def __init__(self):
-        # Initialize topology
-        Topo.__init__(self)
+    "Simplified Abilene Network Topology for manual OpenFlow control."
 
-        # Add nodes as hosts (routers)
-        # Assigning short names for easier reference in paths
-        nodes = {
-            'ny': 'NewYork', 'ch': 'Chicago', 'dc': 'WashingtonDC',
-            'sea': 'Seattle', 'sun': 'Sunnyvale', 'la': 'LosAngeles',
-            'den': 'Denver', 'kc': 'KansasCity', 'hou': 'Houston',
-            'atl': 'Atlanta', 'ind': 'Indianapolis'
-        }
-        
-        self.node_objs = {}
-        for short_name, long_name in nodes.items():
-            # Treat these as switches since they route, but Mininet hosts can run programs
-            # For OpenFlow, they need to be switches. If they are hosts, they connect TO switches.
-            # Let's make them switches, and attach a single host to each "router switch" if we need end-to-end apps.
-            # For simplicity in this router-level topology, we'll use addSwitch and then run commands ON these "switches"
-            # as if they were hosts. This is a common Mininet pattern for router topologies.
-            # OR, stick to addHost and ensure they are controlled by OpenFlow.
-            # Sticking to addHost as per original for now, will use ovs-ofctl on them.
-            self.node_objs[short_name] = self.addHost(short_name)
+    def build(self, **_opts): # Or __init__(self, **_opts) if your class examples strictly use that
+        "Build Abilene topology."
 
-        ny, ch, dc, sea, sun, la, den, kc, hou, atl, ind = (
-            self.node_objs['ny'], self.node_objs['ch'], self.node_objs['dc'],
-            self.node_objs['sea'], self.node_objs['sun'], self.node_objs['la'],
-            self.node_objs['den'], self.node_objs['kc'], self.node_objs['hou'],
-            self.node_objs['atl'], self.node_objs['ind']
-        )
+        # If using __init__, you'd call: Topo.__init__(self, **_opts)
 
-        # Add links: bw in Mbps, delay in ms
-        # Using random delays between 1ms and 2ms for variety
-        # Mininet TCLink delay format is like '1ms', '2ms'
-        # Note: bw=10 means 10 Mbps for TCLink by default. If you meant 10Gbps, use bw=10000
-        # The original had bw=10, implying 10Gbps for OC-192. For Mininet TCLink, explicit unit is good.
-        # Let's assume bw=10000 (10Gbps) for OC-192.
-        gbps = 10000 
-        self.addLink(ny, ch, bw=gbps, delay='1.2ms')
-        self.addLink(ny, dc, bw=gbps, delay='1.5ms')
-        self.addLink(ch, ind, bw=gbps, delay='1.0ms')
-        self.addLink(dc, atl, bw=gbps, delay='1.8ms')
-        self.addLink(sea, sun, bw=gbps, delay='1.1ms')
-        self.addLink(sea, den, bw=gbps, delay='2.0ms')
-        self.addLink(sun, la, bw=gbps, delay='1.3ms')
-        self.addLink(sun, den, bw=gbps, delay='1.6ms')
-        self.addLink(la, hou, bw=gbps, delay='1.9ms')
-        self.addLink(den, kc, bw=gbps, delay='1.4ms')
-        self.addLink(kc, hou, bw=gbps, delay='1.7ms')
-        self.addLink(kc, ind, bw=gbps, delay='1.2ms')
-        self.addLink(hou, atl, bw=gbps, delay='1.5ms')
-        self.addLink(atl, ind, bw=gbps, delay='1.0ms')
+        # Node ID mapping (from your GML) for reference:
+        # 0: New York
+        # 1: Chicago
+        # 2: Washington DC
+        # 3: Seattle
+        # 4: Sunnyvale
+        # 5: Los Angeles
+        # 6: Denver
+        # 7: Kansas City
+        # 8: Houston
+        # 9: Atlanta
+        # 10: Indianapolis
 
-topos = { 'abilenetopo': ( lambda: AbileneTopo() ) }
+        # 1. Add Switches
+        # We'll use s0, s1, ... for switch names, corresponding to GML IDs.
+        s0 = self.addSwitch('s0')  # New York
+        s1 = self.addSwitch('s1')  # Chicago
+        s2 = self.addSwitch('s2')  # Washington DC
+        s3 = self.addSwitch('s3')  # Seattle
+        s4 = self.addSwitch('s4')  # Sunnyvale
+        s5 = self.addSwitch('s5')  # Los Angeles
+        s6 = self.addSwitch('s6')  # Denver
+        s7 = self.addSwitch('s7')  # Kansas City
+        s8 = self.addSwitch('s8')  # Houston
+        s9 = self.addSwitch('s9')  # Atlanta
+        s10 = self.addSwitch('s10') # Indianapolis
+
+        # Store switches in a list for easier linking by GML ID
+        switches = [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10]
+
+        # 2. Add Hosts
+        # Adding one host per switch, named h0, h1, ...
+        # Assigning predictable IPs and MACs is helpful for manual flow rules.
+        h0 = self.addHost('h0')
+        h1 = self.addHost('h1')
+        h2 = self.addHost('h2')
+        h3 = self.addHost('h3')
+        h4 = self.addHost('h4')
+        h5 = self.addHost('h5')
+        h6 = self.addHost('h6')
+        h7 = self.addHost('h7')
+        h8 = self.addHost('h8')
+        h9 = self.addHost('h9')
+        h10 = self.addHost('h10')
+
+        # Store hosts in a list for easier linking
+        hosts = [h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10]
+
+        # 3. Add Links: Host to Switch
+        for i in range(len(hosts)):
+            self.addLink(hosts[i], switches[i], delay='1ms') # e.g., h0 to s0, h1 to s1
+
+        # 4. Add Links: Switch to Switch (Inter-switch links from GML)
+        self.addLink(s0, s1, delay='2ms')   # NY - Chicago
+        self.addLink(s0, s2, delay='2ms')   # NY - DC
+        self.addLink(s1, s10, delay='2ms')  # Chicago - Indianapolis
+        self.addLink(s2, s9, delay='2ms')   # DC - Atlanta
+        self.addLink(s3, s4, delay='2ms')   # Seattle - Sunnyvale
+        self.addLink(s3, s6, delay='2ms')   # Seattle - Denver
+        self.addLink(s4, s5, delay='2ms')   # Sunnyvale - LA
+        self.addLink(s4, s6, delay='2ms')   # Sunnyvale - Denver
+        self.addLink(s5, s8, delay='2ms')   # LA - Houston
+        self.addLink(s6, s7, delay='2ms')   # Denver - Kansas City
+        self.addLink(s7, s8, delay='2ms')   # Kansas City - Houston
+        self.addLink(s7, s10, delay='2ms')  # Kansas City - Indianapolis
+        self.addLink(s8, s9, delay='2ms')   # Houston - Atlanta
+        self.addLink(s9, s10, delay='2ms')  # Atlanta - Indianapolis
+
+# This dictionary is necessary for Mininet to find your topology
+topos = {'abilenetopo': (lambda: AbileneTopo())}
