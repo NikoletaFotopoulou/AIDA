@@ -18,8 +18,9 @@ sudo ovs-ofctl add-flow s10 in_port=3,actions=output:2
 sudo ovs-ofctl add-flow s1 in_port=3,actions=output:2
 sudo ovs-ofctl add-flow s0 in_port=2,actions=output:1
 
-xterm -e "bash -c 'sleep 2; sudo tcpdump -i h5 -w /home/ubuntu/result.pcap; read'" &
+xterm -e "bash -c 'sleep 2; sudo mnexec -a \$(pgrep -f \"mininet:h5\") tcpdump -i h5-eth0 -w /home/ubuntu/result.pcap; read'" &
 xterm -e "bash -c 'ping 10.0.0.6 -i 0.2 -c 300 > /home/ubuntu/ping_results.txt; read'" &
+
 
 # Wait 30 seconds
 sleep 30
