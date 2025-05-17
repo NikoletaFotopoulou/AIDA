@@ -7,5 +7,5 @@ with open("udp_times.txt") as f:
         frame_no = parts[0]
         timestamp = float(parts[1])
         if timestamp < last_time:
-            print(f"Out-of-order detected at frame {frame_no}: {timestamp} < {last_time}")
+            print("Out-of-order detected at frame {}: {} < {}".format(frame_no, timestamp, last_time))
         last_time = timestamp
