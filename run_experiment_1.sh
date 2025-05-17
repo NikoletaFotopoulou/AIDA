@@ -17,7 +17,7 @@ sudo ovs-ofctl add-flow s0 in_port=2,actions=output:1
 # Wait 30 seconds
 sleep 30
 
-# Switch path (s0-s2-s9-s8-s5)
+# Switch path (s0-s2-s9-s8-s7
 sudo ovs-ofctl del-flows s0
 sudo ovs-ofctl del-flows s1
 sudo ovs-ofctl del-flows s10
