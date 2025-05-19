@@ -1,14 +1,9 @@
 from mininet.topo import Topo
 
 class AbileneTopo(Topo):
-    "Simplified Abilene Network Topology for manual OpenFlow control."
-
-    def build(self, **_opts): # Or __init__(self, **_opts) if your class examples strictly use that
-        "Build Abilene topology."
-
-        # If using __init__, you'd call: Topo.__init__(self, **_opts)
-
-        # Node ID mapping (from your GML) for reference:
+    
+    def build(self, **_opts): 
+        # Node ID mapping:
         # 0: New York
         # 1: Chicago
         # 2: Washington DC
@@ -35,12 +30,9 @@ class AbileneTopo(Topo):
         s9 = self.addSwitch('s9')  # Atlanta
         s10 = self.addSwitch('s10') # Indianapolis
 
-        # Store switches in a list for easier linking by GML ID
         switches = [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10]
-
-        # 2. Add Hosts
+        
         # Adding one host per switch, named h0, h1, ...
-        # Assigning predictable IPs and MACs is helpful for manual flow rules.
         h0 = self.addHost('h0')
         h1 = self.addHost('h1')
         h2 = self.addHost('h2')
@@ -52,15 +44,13 @@ class AbileneTopo(Topo):
         h8 = self.addHost('h8')
         h9 = self.addHost('h9')
         h10 = self.addHost('h10')
-
-        # Store hosts in a list for easier linking
         hosts = [h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10]
 
-        # 3. Add Links: Host to Switch
+        #Host to Switch
         for i in range(len(hosts)):
             self.addLink(hosts[i], switches[i], delay='1ms') # e.g., h0 to s0, h1 to s1
 
-        # 4. Add Links: Switch to Switch (Inter-switch links from GML)
+        #Switch to Switch
         self.addLink(s0, s1, delay='2ms')   # NY - Chicago
         self.addLink(s0, s2, delay='2ms')   # NY - DC
         self.addLink(s1, s10, delay='2ms')  # Chicago - Indianapolis
@@ -76,5 +66,4 @@ class AbileneTopo(Topo):
         self.addLink(s8, s9, delay='2ms')   # Houston - Atlanta
         self.addLink(s9, s10, delay='2ms')  # Atlanta - Indianapolis
 
-# This dictionary is necessary for Mininet to find your topology
 topos = {'abilenetopo': (lambda: AbileneTopo())}
