@@ -3,21 +3,7 @@ from mininet.topo import Topo
 class AbileneTopo(Topo):
     
     def build(self, **_opts): 
-        # Node ID mapping:
-        # 0: New York
-        # 1: Chicago
-        # 2: Washington DC
-        # 3: Seattle
-        # 4: Sunnyvale
-        # 5: Los Angeles
-        # 6: Denver
-        # 7: Kansas City
-        # 8: Houston
-        # 9: Atlanta
-        # 10: Indianapolis
-
-        # 1. Add Switches
-        # We'll use s0, s1, ... for switch names, corresponding to GML IDs.
+        
         s0 = self.addSwitch('s0')  # New York
         s1 = self.addSwitch('s1')  # Chicago
         s2 = self.addSwitch('s2')  # Washington DC
@@ -32,7 +18,6 @@ class AbileneTopo(Topo):
 
         switches = [s0, s1, s2, s3, s4, s5, s6, s7, s8, s9, s10]
         
-        # Adding one host per switch, named h0, h1, ...
         h0 = self.addHost('h0')
         h1 = self.addHost('h1')
         h2 = self.addHost('h2')
@@ -44,6 +29,7 @@ class AbileneTopo(Topo):
         h8 = self.addHost('h8')
         h9 = self.addHost('h9')
         h10 = self.addHost('h10')
+        
         hosts = [h0, h1, h2, h3, h4, h5, h6, h7, h8, h9, h10]
 
         #Host to Switch
