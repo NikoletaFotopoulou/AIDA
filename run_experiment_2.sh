@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Wait for network to be ready (optional if manual start was recent)
-sleep 5
-
 # Set up initial flows (s3-s6-s7-s8)
 sudo ovs-ofctl add-flow s3 in_port=1,actions=output:3
 sudo ovs-ofctl add-flow s6 in_port=2,actions=output:4
