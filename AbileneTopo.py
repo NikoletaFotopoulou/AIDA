@@ -34,7 +34,7 @@ class AbileneTopo(Topo):
 
         #Host to Switch
         for i in range(len(hosts)):
-            self.addLink(hosts[i], switches[i], delay='1ms') # e.g., h0 to s0, h1 to s1
+            self.addLink(hosts[i], switches[i], delay='1ms')
 
         #Switch to Switch
         self.addLink(s0, s1, delay='2ms')   # NY - Chicago
